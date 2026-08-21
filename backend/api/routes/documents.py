@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend.ai.gemini import GeminiService
 from backend.api.schemas.documents import (
@@ -38,8 +38,27 @@ Description:
 Return clear, well-structured content suitable for a professional document.
 """
 
-    gemini = GeminiService()
-    generated_content = gemini.generate(prompt)
+    try:
+        gemini = GeminiService()
+        generated_content = gemini.generate(prompt)
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=500,
+            detail="AI service configuration is missing.",
+        ) from error
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="AI service is temporarily unavailable. Please try again later.",
+        ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while generating the document.",
+        ) from error
 
     return {
         "status": "success",
