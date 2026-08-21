@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.api.routes.documents import router as documents_router
 from backend.api.routes.health import router as health_router
 
 
@@ -20,3 +21,4 @@ def root():
 
 
 app.include_router(health_router)
+app.include_router(documents_router)
