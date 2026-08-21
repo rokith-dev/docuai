@@ -1,18 +1,16 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from backend.ai.gemini import GeminiService
+from backend.api.schemas.documents import (
+    DocumentGenerationRequest,
+    DocumentGenerationResponse,
+)
 
 
 router = APIRouter(
     prefix="/api/documents",
     tags=["Documents"],
 )
-
-
-class DocumentGenerationRequest(BaseModel):
-    title: str
-    description: str
 
 
 @router.get("")
@@ -24,7 +22,10 @@ def get_documents():
     }
 
 
-@router.post("/generate")
+@router.post(
+    "/generate",
+    response_model=DocumentGenerationResponse,
+)
 def generate_document(request: DocumentGenerationRequest):
     prompt = f"""
 Create professional document content.
