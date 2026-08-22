@@ -67,6 +67,11 @@ class TemplateUnderstanding:
                 position,
             )
 
+            instruction_index = self._find_instruction_index(
+                paragraphs,
+                position,
+            )
+
             sections.append(
                 {
                     "type": section_type,
@@ -74,6 +79,7 @@ class TemplateUnderstanding:
                     "index": paragraph["index"],
                     "label": text,
                     "instruction": instruction,
+                    "instruction_index": instruction_index,
                     "content_type": self._detect_content_type(
                         section_type,
                         instruction,
@@ -108,6 +114,26 @@ class TemplateUnderstanding:
             return None
 
         return next_text
+
+    def _find_instruction_index(
+        self,
+        paragraphs: list[dict],
+        position: int,
+    ) -> int | None:
+        next_position = position + 1
+
+        if next_position >= len(paragraphs):
+            return None
+
+        next_text = paragraphs[next_position]["text"].strip()
+
+        if not next_text:
+            return None
+
+        if self._detect_section_type(next_text):
+            return None
+
+        return paragraphs[next_position]["index"]
 
     def _detect_content_type(
         self,

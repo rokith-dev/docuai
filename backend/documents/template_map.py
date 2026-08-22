@@ -1,45 +1,98 @@
+from backend.documents.semantic_fields import SemanticFieldDetector
+from backend.documents.table_field_detector import TableFieldDetector
+
+
 class TemplateMapBuilder:
-    """Build a clean field map from the understood template."""
+    """Build a semantic map of the document template."""
+
+    def __init__(
+        self,
+        field_detector: SemanticFieldDetector | None = None,
+        table_field_detector: TableFieldDetector | None = None,
+    ):
+        self.field_detector = (
+            field_detector
+            or SemanticFieldDetector()
+        )
+
+        self.table_field_detector = (
+            table_field_detector
+            or TableFieldDetector(
+                self.field_detector
+            )
+        )
 
     def build(self, understanding: dict) -> dict:
+
         fields = []
 
-        for section in understanding.get("sections", []):
+        # ------------------------------------------
+        # Paragraph sections
+        # ------------------------------------------
+
+        for section in understanding.get(
+            "sections",
+            [],
+        ):
+
+            detected = self.field_detector.detect_custom(
+                section["label"]
+            )
+
             fields.append(
                 {
-                    "name": section["type"],
+                    "name": detected["name"],
                     "label": section["label"],
-                    "content_type": section["content_type"],
+                    "standard": detected["standard"],
+                    "content_type": section[
+                        "content_type"
+                    ],
                     "location": {
-                        "source": section["source"],
-                        "index": section["index"],
+                        "source": section[
+                            "source"
+                        ],
+                        "heading_index": section[
+                            "index"
+                        ],
+                        "content_index": section.get(
+                            "instruction_index"
+                        ),
                     },
-                    "instruction": section.get("instruction"),
+                    "instruction": section.get(
+                        "instruction"
+                    ),
                 }
             )
 
+        # ------------------------------------------
+        # Table fields
+        # ------------------------------------------
+
         table_fields = []
 
-        for table in understanding.get("tables", []):
-            for row_index, row in enumerate(table.get("rows", [])):
-                for column_index, cell in enumerate(row):
-                    if cell["role"] == "empty":
-                        continue
+        for table in understanding.get(
+            "tables",
+            [],
+        ):
 
-                    table_fields.append(
-                        {
-                            "name": cell["role"],
-                            "label": cell["text"],
-                            "location": {
-                                "table_index": table["index"],
-                                "row": row_index,
-                                "column": column_index,
-                            },
-                        }
-                    )
+            detected_fields = (
+                self.table_field_detector.detect(
+                    table
+                )
+            )
+
+            table_fields.extend(
+                detected_fields
+            )
+
+        # ------------------------------------------
+        # Final template map
+        # ------------------------------------------
 
         return {
-            "template": understanding.get("file_name"),
+            "template": understanding.get(
+                "file_name"
+            ),
             "fields": fields,
             "table_fields": table_fields,
         }
