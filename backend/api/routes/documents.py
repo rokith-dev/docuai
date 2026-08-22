@@ -6,6 +6,7 @@ from backend.api.schemas.documents import (
     DocumentGenerationRequest,
     DocumentGenerationResponse,
 )
+from backend.database.repositories.documents import DocumentRepository
 
 
 router = APIRouter(
@@ -14,12 +15,19 @@ router = APIRouter(
 )
 
 
+def get_document_repository() -> DocumentRepository:
+    return DocumentRepository()
+
+
 @router.get("")
 def get_documents():
+    repository = get_document_repository()
+
+    documents = repository.get_all()
+
     return {
         "status": "success",
-        "message": "Document API is working",
-        "documents": [],
+        "documents": documents,
     }
 
 
@@ -63,8 +71,23 @@ Return clear, well-structured content suitable for a professional document.
             detail="An unexpected error occurred while generating the document.",
         ) from error
 
+    try:
+        repository = get_document_repository()
+
+        document = repository.create(
+            title=request.title,
+            description=request.description,
+            content=generated_content,
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Document was generated but could not be saved.",
+        ) from error
+
     return {
         "status": "success",
-        "title": request.title,
-        "content": generated_content,
+        "title": document.title,
+        "content": document.content,
     }

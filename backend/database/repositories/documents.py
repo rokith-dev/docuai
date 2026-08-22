@@ -1,13 +1,15 @@
 from datetime import datetime
 
+from backend.database.client import get_supabase_client
 from backend.database.models import Document
 
 
 class DocumentRepository:
-    """Repository for document data operations."""
+    """Repository for document data stored in Supabase."""
 
     def __init__(self):
-        self._documents: list[Document] = []
+        self.client = get_supabase_client()
+        self.table = "documents"
 
     def create(
         self,
@@ -15,25 +17,81 @@ class DocumentRepository:
         description: str,
         content: str,
     ) -> Document:
-        document = Document(
-            id=len(self._documents) + 1,
-            title=title,
-            description=description,
-            content=content,
-            status="completed",
-            created_at=datetime.now(),
+        response = (
+            self.client
+            .table(self.table)
+            .insert(
+                {
+                    "title": title,
+                    "description": description,
+                    "content": content,
+                    "status": "completed",
+                }
+            )
+            .execute()
         )
 
-        self._documents.append(document)
+        if not response.data:
+            raise RuntimeError("Failed to create document.")
 
-        return document
+        data = response.data[0]
+
+        return Document(
+            id=data["id"],
+            title=data["title"],
+            description=data["description"],
+            content=data["content"],
+            status=data["status"],
+            created_at=datetime.fromisoformat(
+                data["created_at"].replace("Z", "+00:00")
+            ),
+        )
 
     def get_all(self) -> list[Document]:
-        return self._documents
+        response = (
+            self.client
+            .table(self.table)
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return [
+            Document(
+                id=data["id"],
+                title=data["title"],
+                description=data["description"],
+                content=data["content"],
+                status=data["status"],
+                created_at=datetime.fromisoformat(
+                    data["created_at"].replace("Z", "+00:00")
+                ),
+            )
+            for data in response.data
+        ]
 
     def get_by_id(self, document_id: int) -> Document | None:
-        for document in self._documents:
-            if document.id == document_id:
-                return document
+        response = (
+            self.client
+            .table(self.table)
+            .select("*")
+            .eq("id", document_id)
+            .limit(1)
+            .execute()
+        )
 
-        return None
+        if not response.data:
+            return None
+
+        data = response.data[0]
+
+        return Document(
+            id=data["id"],
+            title=data["title"],
+            description=data["description"],
+            content=data["content"],
+            status=data["status"],
+            created_at=datetime.fromisoformat(
+                data["created_at"].replace("Z", "+00:00")
+            ),
+        )
