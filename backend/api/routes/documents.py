@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.ai.gemini import GeminiService
+from backend.api.dependencies import get_gemini_service
 from backend.api.schemas.documents import (
     DocumentGenerationRequest,
     DocumentGenerationResponse,
@@ -26,7 +27,10 @@ def get_documents():
     "/generate",
     response_model=DocumentGenerationResponse,
 )
-def generate_document(request: DocumentGenerationRequest):
+def generate_document(
+    request: DocumentGenerationRequest,
+    gemini: GeminiService = Depends(get_gemini_service),
+):
     prompt = f"""
 Create professional document content.
 
@@ -39,7 +43,6 @@ Return clear, well-structured content suitable for a professional document.
 """
 
     try:
-        gemini = GeminiService()
         generated_content = gemini.generate(prompt)
 
     except ValueError as error:
