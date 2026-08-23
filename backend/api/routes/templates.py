@@ -9,6 +9,8 @@ from backend.documents.docx_populator import DocxPopulator
 from backend.documents.template_analyzer import TemplateAnalyzer
 from backend.documents.template_understanding import TemplateUnderstanding
 from backend.documents.template_map import TemplateMapBuilder
+from backend.database.repositories.managed_documents import ManagedDocumentRepository
+from backend.storage.local_storage import save_generated_file
 
 
 router = APIRouter(
@@ -179,6 +181,8 @@ async def generate_document(
     file: UploadFile = File(...),
     content: str = Form(...),
     output_image: UploadFile | None = File(None),
+    project_id: str | None = Form(None),
+    document_name: str | None = Form(None),
 ):
     """
     Populate the uploaded DOCX template with
@@ -219,6 +223,17 @@ async def generate_document(
     image_path = None
 
     try:
+
+        parsed_project_id = None
+
+        if project_id and project_id.strip():
+            try:
+                parsed_project_id = int(project_id)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid project ID.",
+                ) from error
 
         # ==========================================
         # PARSE CONTENT JSON
@@ -366,6 +381,27 @@ async def generate_document(
             )
         )
 
+        safe_document_name = (
+            document_name.strip()
+            if document_name and document_name.strip()
+            else f"DocuAI_{Path(file.filename).stem}"
+        )
+
+        if not safe_document_name.lower().endswith(".docx"):
+            safe_document_name += ".docx"
+
+        stored_file = save_generated_file(
+            generated_file,
+            safe_document_name,
+        )
+
+        ManagedDocumentRepository().create(
+            document_name=safe_document_name,
+            template_name=Path(file.filename).name,
+            file_path=str(stored_file),
+            project_id=parsed_project_id,
+        )
+
         # ==========================================
         # RETURN GENERATED DOCX
         # ==========================================
@@ -377,12 +413,12 @@ async def generate_document(
         )
 
         return FileResponse(
-            path=generated_file,
+            path=str(stored_file),
             media_type=(
                 "application/vnd.openxmlformats-officedocument"
                 ".wordprocessingml.document"
             ),
-            filename=download_name,
+            filename=safe_document_name,
         )
 
     except HTTPException:

@@ -8,7 +8,7 @@ class DocumentFormatConfig:
         heading_font_size: int = 14,
         subheading_font_size: int = 13,
         title_font_size: int = 16,
-        code_font_size: int = 10,
+        code_font_size: int = 12,
         body_alignment: str = "JUSTIFY",
     ):
         self.font_name = font_name

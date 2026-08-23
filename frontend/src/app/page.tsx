@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  useEffect,
   useState,
 } from "react";
 
@@ -53,6 +54,11 @@ interface UserContent {
   [key: string]: string;
 }
 
+interface Project {
+  id: number;
+  name: string;
+}
+
 
 // ==================================================
 // PAGE
@@ -85,6 +91,15 @@ export default function CreatePage() {
   const [topic, setTopic] =
     useState("");
 
+  const [documentName, setDocumentName] =
+    useState("");
+
+  const [projectId, setProjectId] =
+    useState("");
+
+  const [projects, setProjects] =
+    useState<Project[]>([]);
+
   const [error, setError] =
     useState("");
 
@@ -109,9 +124,18 @@ export default function CreatePage() {
     setContent({});
     setOutputImage(null);
     setTopic("");
+    setDocumentName("");
+    setProjectId("");
     setError("");
     setSuccess("");
   }
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/api/projects")
+      .then((response) => response.json())
+      .then((data) => setProjects(data.projects ?? []))
+      .catch(() => setProjects([]));
+  }, [result]);
 
 
   // ==================================================
@@ -765,6 +789,14 @@ export default function CreatePage() {
         ),
       );
 
+      if (documentName.trim()) {
+        formData.append("document_name", documentName.trim());
+      }
+
+      if (projectId) {
+        formData.append("project_id", projectId);
+      }
+
 
       // ==================================================
       // OUTPUT IMAGE
@@ -1225,6 +1257,30 @@ export default function CreatePage() {
                   >
                     {aiLoading ? "Generating AI Content..." : "Generate with AI"}
                   </button>
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <input
+                    type="text"
+                    value={documentName}
+                    onChange={(event) => setDocumentName(event.target.value)}
+                    placeholder="Document name (optional)"
+                    disabled={loading || aiLoading}
+                    className="rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
+                  />
+                  <select
+                    value={projectId}
+                    onChange={(event) => setProjectId(event.target.value)}
+                    disabled={loading || aiLoading}
+                    className="rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
+                  >
+                    <option value="">No project</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
