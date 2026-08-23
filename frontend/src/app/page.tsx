@@ -79,6 +79,12 @@ export default function CreatePage() {
   const [loading, setLoading] =
     useState(false);
 
+  const [aiLoading, setAiLoading] =
+    useState(false);
+
+  const [topic, setTopic] =
+    useState("");
+
   const [error, setError] =
     useState("");
 
@@ -102,8 +108,73 @@ export default function CreatePage() {
     setResult(null);
     setContent({});
     setOutputImage(null);
+    setTopic("");
     setError("");
     setSuccess("");
+  }
+
+
+  // ==================================================
+  // GENERATE AI CONTENT
+  // ==================================================
+
+  async function generateAIContent() {
+
+    if (!result) {
+      setError("Please analyze the template first.");
+      return;
+    }
+
+    if (!topic.trim()) {
+      setError("Please enter an experiment or document topic.");
+      return;
+    }
+
+    setAiLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:8000/api/ai/generate-content",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            topic: topic.trim(),
+            fields: result.fields,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "AI content generation failed.",
+        );
+      }
+
+      if (!data.content || typeof data.content !== "object") {
+        throw new Error("The AI returned an invalid content response.");
+      }
+
+      setContent((previous) => ({
+        ...previous,
+        ...data.content,
+      }));
+      setSuccess("AI content generated. Review and edit it before generating the document.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to generate AI content.",
+      );
+    } finally {
+      setAiLoading(false);
+    }
   }
 
 
@@ -1127,6 +1198,36 @@ export default function CreatePage() {
                 {result.file_name}
               </p>
 
+              <div className="mt-6 border-t border-gray-200 pt-6">
+                <label
+                  htmlFor="document-topic"
+                  className="mb-2 block text-sm font-medium text-gray-800"
+                >
+                  Experiment or Document Topic
+                </label>
+
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input
+                    id="document-topic"
+                    type="text"
+                    value={topic}
+                    onChange={(event) => setTopic(event.target.value)}
+                    placeholder="e.g. CNN Image Classification"
+                    disabled={aiLoading || loading}
+                    className="w-full rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={generateAIContent}
+                    disabled={aiLoading || loading || !topic.trim()}
+                    className="rounded-xl bg-blue-600 px-6 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {aiLoading ? "Generating AI Content..." : "Generate with AI"}
+                  </button>
+                </div>
+              </div>
+
             </div>
 
 
@@ -1337,7 +1438,8 @@ export default function CreatePage() {
                 }
                 disabled={
                   !file ||
-                  loading
+                  loading ||
+                  aiLoading
                 }
                 className="
                   rounded-xl
