@@ -1,414 +1,600 @@
-import re
+from __future__ import annotations
 
-from backend.documents.semantic_fields import SemanticFieldDetector
+from typing import Any
 
 
 class TableFieldDetector:
-    """Detect semantic fields and their value locations in tables."""
+    """
+    Detect semantic fields inside DOCX tables.
 
-    DATE_PLACEHOLDERS = {
-        "dd.mm.yyyy",
-        "dd/mm/yyyy",
-        "dd-mm-yyyy",
-        "yyyy-mm-dd",
-        "enter date",
-        "date here",
-        "insert date",
-    }
+    The detector understands common academic-template fields such as:
+        - Exercise Number
+        - Title
+        - YouTube Link
+        - Date
 
-    TITLE_PLACEHOLDERS = {
-        "title of the exercise",
-        "exercise title",
-        "experiment title",
-        "experiment name",
-        "exercise name",
-        "title here",
-        "enter title",
-        "insert title",
-    }
+    Important:
+    The detector must return the actual VALUE cell location,
+    not the label cell location.
+    """
 
-    EXERCISE_NUMBER_PATTERN = re.compile(
-        r"^ex\.?\s*no\.?\s*\d+$",
-        re.IGNORECASE,
-    )
+    def __init__(self, field_detector=None):
+        self.field_detector = field_detector
 
-    def __init__(
-        self,
-        semantic_detector=None,
-    ):
-        self.semantic_detector = (
-            semantic_detector
-            or SemanticFieldDetector()
-        )
-
-    # ==================================================
-    # MAIN DETECTOR
-    # ==================================================
+    # ==========================================================
+    # PUBLIC API
+    # ==========================================================
 
     def detect(self, table: dict) -> list[dict]:
+        """
+        Detect fields from one analyzed table.
+
+        Expected input:
+
+        {
+            "source": "table",
+            "index": 0,
+            "rows": [
+                [
+                    {"text": "Ex. No. 1", "role": "exercise_number"},
+                    {"text": "TITLE OF THE EXERCISE", "role": "title"}
+                ],
+                [
+                    {"text": "YouTube Link", "role": "url"},
+                    {"text": "", "role": "empty"}
+                ],
+                [
+                    {"text": "Date of Exercise", "role": "date"},
+                    {"text": "DD.MM.YYYY", "role": "date"}
+                ]
+            ]
+        }
+        """
 
         rows = table.get("rows", [])
+        table_index = table.get("index", 0)
 
-        fields = []
+        if not rows:
+            return []
+
+        fields: list[dict] = []
 
         for row_index, row in enumerate(rows):
 
+            if not isinstance(row, list):
+                continue
+
             for column_index, cell in enumerate(row):
 
-                text = self._get_cell_text(cell)
-
-                if not text:
+                if not isinstance(cell, dict):
                     continue
 
-                # ------------------------------------------
-                # Existing exercise number
-                # ------------------------------------------
+                text = self._normalize(
+                    cell.get("text", "")
+                )
 
-                if self._is_exercise_number(text):
+                role = self._normalize(
+                    cell.get("role", "")
+                )
 
+                if not text and not role:
+                    continue
+
+                # --------------------------------------------------
+                # Exercise number
+                # --------------------------------------------------
+
+                if self._is_exercise_number(
+                    text,
+                    role,
+                ):
                     fields.append(
-                        self._build_existing_value(
-                            table,
-                            row_index,
-                            column_index,
-                            "exercise_number",
-                            text,
+                        self._build_existing_value_field(
+                            name="exercise_number",
+                            label=text,
+                            table_index=table_index,
+                            row=row_index,
+                            column=column_index,
+                            current_value=text,
                         )
                     )
 
                     continue
 
-                # ------------------------------------------
-                # IMPORTANT:
-                #
-                # First check whether the text is a
-                # semantic LABEL.
-                #
-                # This must happen BEFORE placeholder
-                # detection.
-                #
-                # "Title" = label
-                # "Title of the Exercise" = placeholder
-                # ------------------------------------------
+                # --------------------------------------------------
+                # Title
+                # --------------------------------------------------
 
-                semantic_field = (
-                    self.semantic_detector.detect(text)
-                )
+                if self._is_title(
+                    text,
+                    role,
+                ):
 
-                if semantic_field:
-
-                    field = self._build_label_field(
-                        table=table,
-                        rows=rows,
-                        row_index=row_index,
-                        column_index=column_index,
-                        label=text,
-                        field_name=semantic_field,
-                    )
-
-                    if field:
-                        fields.append(field)
-
-                    continue
-
-                # ------------------------------------------
-                # Placeholder/value
-                # ------------------------------------------
-
-                placeholder_field = (
-                    self._detect_placeholder_field(text)
-                )
-
-                if placeholder_field:
-
-                    fields.append(
-                        self._build_placeholder_field(
-                            table,
-                            row_index,
-                            column_index,
-                            text,
-                            placeholder_field,
+                    value_row, value_column = (
+                        self._find_title_value_location(
+                            rows=rows,
+                            label_row=row_index,
+                            label_column=column_index,
                         )
                     )
 
-        return self._remove_duplicates(fields)
+                    fields.append(
+                        self._build_field(
+                            name="title",
+                            label=text,
+                            kind="label_value",
+                            table_index=table_index,
+                            label_row=row_index,
+                            label_column=column_index,
+                            value_row=value_row,
+                            value_column=value_column,
+                            current_value=self._get_cell_text(
+                                rows,
+                                value_row,
+                                value_column,
+                            ),
+                        )
+                    )
 
-    # ==================================================
-    # LABEL → VALUE
-    # ==================================================
+                    continue
 
-    def _build_label_field(
-        self,
-        table,
-        rows,
-        row_index,
-        column_index,
-        label,
-        field_name,
-    ):
+                # --------------------------------------------------
+                # YouTube link
+                # --------------------------------------------------
 
-        value_location = self._find_value_cell(
-            rows,
-            row_index,
-            column_index,
-        )
+                if self._is_youtube(
+                    text,
+                    role,
+                ):
 
-        if value_location is None:
-            return None
+                    value_row, value_column = (
+                        self._find_adjacent_value_location(
+                            rows=rows,
+                            label_row=row_index,
+                            label_column=column_index,
+                        )
+                    )
+
+                    fields.append(
+                        self._build_field(
+                            name="youtube_link",
+                            label=text,
+                            kind="label_value",
+                            table_index=table_index,
+                            label_row=row_index,
+                            label_column=column_index,
+                            value_row=value_row,
+                            value_column=value_column,
+                            current_value=self._get_cell_text(
+                                rows,
+                                value_row,
+                                value_column,
+                            ),
+                        )
+                    )
+
+                    continue
+
+                # --------------------------------------------------
+                # Date
+                # --------------------------------------------------
+
+                if self._is_date(
+                    text,
+                    role,
+                ):
+
+                    # "Date of Exercise" is the label.
+                    # "DD.MM.YYYY" is the value cell.
+                    if self._is_date_label(text):
+
+                        value_row, value_column = (
+                            self._find_adjacent_value_location(
+                                rows=rows,
+                                label_row=row_index,
+                                label_column=column_index,
+                            )
+                        )
+
+                        fields.append(
+                            self._build_field(
+                                name="date",
+                                label=text,
+                                kind="label_value",
+                                table_index=table_index,
+                                label_row=row_index,
+                                label_column=column_index,
+                                value_row=value_row,
+                                value_column=value_column,
+                                current_value=self._get_cell_text(
+                                    rows,
+                                    value_row,
+                                    value_column,
+                                ),
+                                placeholder=self._is_date_placeholder(
+                                    self._get_cell_text(
+                                        rows,
+                                        value_row,
+                                        value_column,
+                                    )
+                                ),
+                            )
+                        )
+
+                        continue
+
+                    # "DD.MM.YYYY" directly identifies the date
+                    # placeholder.
+                    if self._is_date_placeholder(text):
+
+                        # Avoid creating duplicate date fields
+                        # when the label was already detected.
+                        if self._date_field_exists(fields):
+                            continue
+
+                        fields.append(
+                            self._build_field(
+                                name="date",
+                                label=text,
+                                kind="placeholder",
+                                table_index=table_index,
+                                label_row=row_index,
+                                label_column=column_index,
+                                value_row=row_index,
+                                value_column=column_index,
+                                current_value=text,
+                                placeholder=True,
+                            )
+                        )
+
+        return self._remove_duplicate_fields(fields)
+
+    # ==========================================================
+    # FIELD BUILDERS
+    # ==========================================================
+
+    @staticmethod
+    def _build_field(
+        name: str,
+        label: str,
+        kind: str,
+        table_index: int,
+        label_row: int,
+        label_column: int,
+        value_row: int,
+        value_column: int,
+        current_value: str = "",
+        placeholder: bool = False,
+    ) -> dict:
 
         return {
-            "name": field_name,
+            "name": name,
             "label": label,
             "standard": True,
-            "kind": "label_value",
+            "kind": kind,
             "label_location": {
-                "table_index": table["index"],
-                "row": row_index,
-                "column": column_index,
+                "table_index": table_index,
+                "row": label_row,
+                "column": label_column,
             },
             "value_location": {
-                "table_index": table["index"],
-                "row": value_location["row"],
-                "column": value_location["column"],
+                "table_index": table_index,
+                "row": value_row,
+                "column": value_column,
             },
-            "current_value": value_location["value"],
-            "placeholder": self._is_placeholder(
-                value_location["value"]
-            ),
+            "current_value": current_value,
+            "placeholder": placeholder,
         }
 
-    # ==================================================
-    # PLACEHOLDER
-    # ==================================================
-
-    def _build_placeholder_field(
-        self,
-        table,
-        row_index,
-        column_index,
-        text,
-        field_name,
-    ):
+    @staticmethod
+    def _build_existing_value_field(
+        name: str,
+        label: str,
+        table_index: int,
+        row: int,
+        column: int,
+        current_value: str,
+    ) -> dict:
 
         return {
-            "name": field_name,
-            "label": text,
-            "standard": True,
-            "kind": "placeholder",
-            "label_location": {
-                "table_index": table["index"],
-                "row": row_index,
-                "column": column_index,
-            },
-            "value_location": {
-                "table_index": table["index"],
-                "row": row_index,
-                "column": column_index,
-            },
-            "current_value": text,
-            "placeholder": True,
-        }
-
-    # ==================================================
-    # EXISTING VALUE
-    # ==================================================
-
-    def _build_existing_value(
-        self,
-        table,
-        row_index,
-        column_index,
-        field_name,
-        text,
-    ):
-
-        return {
-            "name": field_name,
-            "label": "Ex. No.",
+            "name": name,
+            "label": label,
             "standard": True,
             "kind": "existing_value",
             "label_location": {
-                "table_index": table["index"],
-                "row": row_index,
-                "column": column_index,
+                "table_index": table_index,
+                "row": row,
+                "column": column,
             },
             "value_location": {
-                "table_index": table["index"],
-                "row": row_index,
-                "column": column_index,
+                "table_index": table_index,
+                "row": row,
+                "column": column,
             },
-            "current_value": text,
+            "current_value": current_value,
             "placeholder": False,
         }
 
-    # ==================================================
-    # FIND VALUE CELL
-    # ==================================================
+    # ==========================================================
+    # LOCATION DETECTION
+    # ==========================================================
 
-    def _find_value_cell(
-        self,
-        rows,
-        row_index,
-        column_index,
-    ):
+    @staticmethod
+    def _find_title_value_location(
+        rows: list,
+        label_row: int,
+        label_column: int,
+    ) -> tuple[int, int]:
+        """
+        Find the cell where the title value belongs.
 
-        row = rows[row_index]
+        For the user's template:
 
-        # ------------------------------------------
-        # Horizontal layout:
-        #
-        # LABEL | VALUE
-        # ------------------------------------------
+            Row 0:
+                Ex. No. 1 | TITLE OF THE EXERCISE
 
-        next_column = column_index + 1
+        The actual title belongs in:
 
-        if next_column < len(row):
+            row 0, column 1
 
-            value = self._get_cell_text(
-                row[next_column]
-            )
-
-            return {
-                "row": row_index,
-                "column": next_column,
-                "value": value,
-            }
-
-        # ------------------------------------------
-        # Vertical layout:
-        #
-        # LABEL
-        # VALUE
-        # ------------------------------------------
-
-        next_row = row_index + 1
-
-        if next_row < len(rows):
-
-            next_row_data = rows[next_row]
-
-            if column_index < len(
-                next_row_data
-            ):
-
-                value = self._get_cell_text(
-                    next_row_data[column_index]
-                )
-
-                return {
-                    "row": next_row,
-                    "column": column_index,
-                    "value": value,
-                }
-
-        return None
-
-    # ==================================================
-    # PLACEHOLDER DETECTION
-    # ==================================================
-
-    def _detect_placeholder_field(
-        self,
-        text,
-    ):
-
-        normalized = self._normalize(text)
-
-        # Date placeholders
-        if normalized in self.DATE_PLACEHOLDERS:
-            return "date"
-
-        if re.fullmatch(
-            r"d{2}[./-]m{2}[./-]y{4}",
-            normalized,
-        ):
-            return "date"
-
-        # Title placeholders
-        if normalized in self.TITLE_PLACEHOLDERS:
-            return "title"
-
-        return None
-
-    def _is_placeholder(
-        self,
-        text,
-    ):
+        We intentionally keep it in the SAME CELL because
+        the template's title cell is itself the value cell.
+        """
 
         return (
-            self._detect_placeholder_field(text)
-            is not None
+            label_row,
+            label_column,
         )
 
-    # ==================================================
-    # EXERCISE NUMBER
-    # ==================================================
+    @staticmethod
+    def _find_adjacent_value_location(
+        rows: list,
+        label_row: int,
+        label_column: int,
+    ) -> tuple[int, int]:
+        """
+        Find the value cell next to a label.
 
-    @classmethod
-    def _is_exercise_number(
-        cls,
-        text,
-    ):
+        Example:
 
-        return bool(
-            cls.EXERCISE_NUMBER_PATTERN.fullmatch(
-                text.strip()
+            YouTube Link | empty
+
+        becomes:
+
+            value_location = row 1, column 1
+        """
+
+        # First try the cell immediately to the right.
+        if (
+            label_row < len(rows)
+            and label_column + 1 < len(
+                rows[label_row]
             )
+        ):
+            return (
+                label_row,
+                label_column + 1,
+            )
+
+        # If there is no right-side cell,
+        # look for an empty cell in the same row.
+        if label_row < len(rows):
+
+            for column_index, cell in enumerate(
+                rows[label_row]
+            ):
+
+                if column_index == label_column:
+                    continue
+
+                if not self._normalize(
+                    cell.get("text", "")
+                ):
+                    return (
+                        label_row,
+                        column_index,
+                    )
+
+        # Last fallback: keep the label cell.
+        return (
+            label_row,
+            label_column,
         )
 
-    # ==================================================
+    # ==========================================================
+    # SEMANTIC DETECTION
+    # ==========================================================
+
+    @staticmethod
+    def _is_exercise_number(
+        text: str,
+        role: str,
+    ) -> bool:
+
+        if role in {
+            "exercise_number",
+            "exercise number",
+            "ex_no",
+        }:
+            return True
+
+        normalized = text.lower()
+
+        return (
+            normalized.startswith("ex. no.")
+            or normalized.startswith("ex no.")
+            or normalized.startswith("exercise no.")
+            or normalized.startswith("exercise number")
+        )
+
+    @staticmethod
+    def _is_title(
+        text: str,
+        role: str,
+    ) -> bool:
+
+        if role == "title":
+            return True
+
+        normalized = text.lower()
+
+        return (
+            "title of the exercise"
+            in normalized
+            or normalized == "title"
+        )
+
+    @staticmethod
+    def _is_youtube(
+        text: str,
+        role: str,
+    ) -> bool:
+
+        if role in {
+            "url",
+            "youtube",
+            "youtube_link",
+            "youtube link",
+        }:
+            return True
+
+        normalized = text.lower()
+
+        return (
+            "youtube" in normalized
+            or "video link" in normalized
+        )
+
+    @staticmethod
+    def _is_date(
+        text: str,
+        role: str,
+    ) -> bool:
+
+        if role == "date":
+            return True
+
+        normalized = text.lower()
+
+        return (
+            "date" in normalized
+            or normalized == "dd.mm.yyyy"
+        )
+
+    @staticmethod
+    def _is_date_label(
+        text: str,
+    ) -> bool:
+
+        normalized = text.lower().strip()
+
+        return (
+            normalized.startswith("date")
+            and normalized != "dd.mm.yyyy"
+        )
+
+    @staticmethod
+    def _is_date_placeholder(
+        text: str,
+    ) -> bool:
+
+        normalized = text.lower().strip()
+
+        return normalized in {
+            "dd.mm.yyyy",
+            "dd/mm/yyyy",
+            "dd-mm-yyyy",
+            "date",
+        }
+
+    # ==========================================================
     # HELPERS
-    # ==================================================
+    # ==========================================================
 
     @staticmethod
-    def _get_cell_text(cell):
+    def _get_cell_text(
+        rows: list,
+        row: int,
+        column: int,
+    ) -> str:
 
-        if isinstance(cell, dict):
+        if row < 0 or row >= len(rows):
+            return ""
 
-            return str(
-                cell.get("text", "")
-            ).strip()
+        current_row = rows[row]
 
-        return str(cell).strip()
+        if column < 0 or column >= len(
+            current_row
+        ):
+            return ""
+
+        cell = current_row[column]
+
+        if not isinstance(cell, dict):
+            return ""
+
+        return str(
+            cell.get("text", "")
+        ).strip()
 
     @staticmethod
-    def _normalize(text):
+    def _normalize(
+        value: Any,
+    ) -> str:
 
-        text = text.lower().strip()
+        if value is None:
+            return ""
 
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
+        return " ".join(
+            str(value).strip().split()
         )
 
-        text = text.rstrip(":")
+    @staticmethod
+    def _date_field_exists(
+        fields: list[dict],
+    ) -> bool:
 
-        return text.strip()
+        return any(
+            field.get("name") == "date"
+            for field in fields
+        )
 
     @staticmethod
-    def _remove_duplicates(
-        fields,
-    ):
+    def _remove_duplicate_fields(
+        fields: list[dict],
+    ) -> list[dict]:
 
-        unique = {}
+        unique: list[dict] = []
+        seen: set[tuple] = set()
 
         for field in fields:
 
-            location = field.get(
-                "value_location",
-                {},
-            )
-
             key = (
-                field["name"],
-                location.get(
-                    "table_index"
+                field.get("name"),
+                (
+                    field.get(
+                        "value_location",
+                        {},
+                    ).get("table_index")
                 ),
-                location.get("row"),
-                location.get("column"),
+                (
+                    field.get(
+                        "value_location",
+                        {},
+                    ).get("row")
+                ),
+                (
+                    field.get(
+                        "value_location",
+                        {},
+                    ).get("column")
+                ),
             )
 
-            unique[key] = field
+            if key in seen:
+                continue
 
-        return list(unique.values())
+            seen.add(key)
+            unique.append(field)
+
+        return unique

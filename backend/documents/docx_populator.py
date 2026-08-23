@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -9,7 +10,11 @@ from backend.documents.font_manager import FontManager
 
 
 class DocxPopulator:
-    """Populate DOCX templates while preserving template formatting."""
+    """
+    Populate DOCX templates while preserving the
+    template's formatting and respecting font
+    requirements detected from the template.
+    """
 
     def __init__(
         self,
@@ -20,7 +25,7 @@ class DocxPopulator:
             or DocumentFormatConfig()
         )
 
-        self.font_name = FontManager.resolve(
+        self.default_font = FontManager.resolve(
             self.format_config.font_name
         )
 
@@ -49,7 +54,28 @@ class DocxPopulator:
                 "Only .docx templates are supported."
             )
 
-        document = Document(template_path)
+        document = Document(
+            str(template)
+        )
+
+        # ----------------------------------------------
+        # Detect the document font
+        # ----------------------------------------------
+
+        detected_font = (
+            self._detect_document_font(
+                document
+            )
+        )
+
+        self.document_font = (
+            detected_font
+            or self.default_font
+        )
+
+        # ----------------------------------------------
+        # Populate paragraph fields
+        # ----------------------------------------------
 
         self._populate_paragraph_fields(
             document,
@@ -57,20 +83,164 @@ class DocxPopulator:
             content,
         )
 
+        # ----------------------------------------------
+        # Populate table fields
+        # ----------------------------------------------
+
         self._populate_table_fields(
             document,
             template_map,
             content,
         )
 
+        # ----------------------------------------------
+        # Save
+        # ----------------------------------------------
+
         output.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        document.save(output_path)
+        document.save(
+            str(output)
+        )
 
         return str(output)
+
+    # ==================================================
+    # FONT DETECTION
+    # ==================================================
+
+    def _detect_document_font(
+        self,
+        document,
+    ) -> str | None:
+        """
+        Detect the main font requested/used by the
+        template.
+
+        Example:
+            Times New Roman
+            Arial
+            Calibri
+
+        The first meaningful font used by the
+        template is treated as the document font.
+        """
+
+        detected_fonts = []
+
+        # ------------------------------------------
+        # Paragraph runs
+        # ------------------------------------------
+
+        for paragraph in document.paragraphs:
+
+            for run in paragraph.runs:
+
+                font_name = (
+                    run.font.name
+                )
+
+                if font_name:
+                    detected_fonts.append(
+                        font_name
+                    )
+
+        # ------------------------------------------
+        # Table runs
+        # ------------------------------------------
+
+        for table in document.tables:
+
+            for row in table.rows:
+
+                for cell in row.cells:
+
+                    for paragraph in cell.paragraphs:
+
+                        for run in paragraph.runs:
+
+                            font_name = (
+                                run.font.name
+                            )
+
+                            if font_name:
+                                detected_fonts.append(
+                                    font_name
+                                )
+
+        # ------------------------------------------
+        # Look for explicit font names in text
+        # ------------------------------------------
+
+        all_text = []
+
+        for paragraph in document.paragraphs:
+            all_text.append(
+                paragraph.text
+            )
+
+        for table in document.tables:
+
+            for row in table.rows:
+
+                for cell in row.cells:
+
+                    all_text.append(
+                        cell.text
+                    )
+
+        combined_text = " ".join(
+            all_text
+        ).lower()
+
+        known_fonts = [
+            "times new roman",
+            "arial",
+            "calibri",
+            "cambria",
+            "georgia",
+            "verdana",
+            "tahoma",
+            "courier new",
+        ]
+
+        for font in known_fonts:
+
+            if font in combined_text:
+
+                return font.title()
+
+        # ------------------------------------------
+        # Most common actual template font
+        # ------------------------------------------
+
+        if detected_fonts:
+
+            counts = {}
+
+            for font in detected_fonts:
+
+                normalized = (
+                    str(font).strip()
+                )
+
+                counts[normalized] = (
+                    counts.get(
+                        normalized,
+                        0,
+                    )
+                    + 1
+                )
+
+            return max(
+                counts,
+                key=counts.get,
+            )
+
+        return None
 
     # ==================================================
     # PARAGRAPH FIELDS
@@ -88,14 +258,21 @@ class DocxPopulator:
             [],
         ):
 
-            field_name = field["name"]
+            field_name = field[
+                "name"
+            ]
 
             if field_name not in content:
                 continue
 
-            location = field["location"]
+            location = field.get(
+                "location",
+                {},
+            )
 
-            if location.get("source") != "paragraph":
+            if location.get(
+                "source"
+            ) != "paragraph":
                 continue
 
             paragraph_index = location.get(
@@ -114,15 +291,23 @@ class DocxPopulator:
                 paragraph_index
             ]
 
-            value = content[field_name]
+            value = content[
+                field_name
+            ]
 
-            if isinstance(value, dict):
+            if isinstance(
+                value,
+                dict,
+            ):
+
                 value = value.get(
                     "content",
                     "",
                 )
 
-            value = str(value)
+            value = str(
+                value
+            )
 
             if not value.strip():
                 continue
@@ -158,34 +343,39 @@ class DocxPopulator:
         content_type,
     ):
 
-        # Capture formatting from the template.
         style = self._capture_run_style(
             paragraph
         )
 
-        # Code must preserve indentation,
-        # newlines and spacing.
         if content_type == "code":
-            value = str(value)
+
+            value = str(
+                value
+            )
 
         else:
-            value = self._clean_text(value)
 
-        # Remove the template instruction.
-        self._remove_runs(paragraph)
+            value = self._clean_text(
+                value
+            )
 
-        # Apply template capitalization only
-        # to normal text.
+        self._remove_runs(
+            paragraph
+        )
+
         if content_type != "code":
 
             value = self._apply_capitalization(
                 value,
-                style.get("capitalization"),
+                style.get(
+                    "capitalization"
+                ),
             )
 
-        run = paragraph.add_run(value)
+        run = paragraph.add_run(
+            value
+        )
 
-        # Restore template formatting.
         self._apply_run_style(
             run,
             style,
@@ -203,7 +393,10 @@ class DocxPopulator:
 
         else:
 
-            if not style.get("size"):
+            if not style.get(
+                "size"
+            ):
+
                 run.font.size = Pt(
                     self.format_config.body_font_size
                 )
@@ -223,29 +416,40 @@ class DocxPopulator:
         content,
     ):
 
-        for field in template_map.get(
+        fields = template_map.get(
             "table_fields",
             [],
-        ):
+        )
 
-            field_name = field["name"]
+        used_locations = set()
 
-            # Field not supplied by user.
-            # Leave template unchanged.
+        for field in fields:
+
+            field_name = field[
+                "name"
+            ]
+
             if field_name not in content:
                 continue
 
-            value = content[field_name]
+            value = content[
+                field_name
+            ]
 
-            if isinstance(value, dict):
+            if isinstance(
+                value,
+                dict,
+            ):
+
                 value = value.get(
                     "content",
                     "",
                 )
 
-            value = str(value)
+            value = str(
+                value
+            )
 
-            # Optional blank field.
             if not value.strip():
                 continue
 
@@ -256,6 +460,50 @@ class DocxPopulator:
             if not location:
                 continue
 
+            # --------------------------------------
+            # Prevent two different fields from
+            # overwriting the same table cell.
+            # --------------------------------------
+
+            location_key = (
+                location.get(
+                    "table_index"
+                ),
+                location.get(
+                    "row"
+                ),
+                location.get(
+                    "column"
+                ),
+            )
+
+            if location_key in used_locations:
+
+                location = (
+                    self._find_alternative_table_location(
+                        document,
+                        field,
+                        used_locations,
+                    )
+                )
+
+                if location is None:
+                    continue
+
+            used_locations.add(
+                (
+                    location.get(
+                        "table_index"
+                    ),
+                    location.get(
+                        "row"
+                    ),
+                    location.get(
+                        "column"
+                    ),
+                )
+            )
+
             self._set_table_cell_value(
                 document,
                 location,
@@ -264,7 +512,153 @@ class DocxPopulator:
             )
 
     # ==================================================
-    # TABLE CELL VALUE
+    # FIND ALTERNATIVE TABLE LOCATION
+    # ==================================================
+
+    def _find_alternative_table_location(
+        self,
+        document,
+        field,
+        used_locations,
+    ):
+        """
+        Try to find a nearby empty table cell
+        when the detector accidentally maps two
+        fields to the same cell.
+
+        This is especially useful for Word tables
+        containing merged cells.
+        """
+
+        label = str(
+            field.get(
+                "label",
+                ""
+            )
+        ).strip().lower()
+
+        location = field.get(
+            "value_location"
+        )
+
+        if not location:
+            return None
+
+        table_index = location.get(
+            "table_index"
+        )
+
+        row_index = location.get(
+            "row"
+        )
+
+        column_index = location.get(
+            "column"
+        )
+
+        if table_index >= len(
+            document.tables
+        ):
+            return None
+
+        table = document.tables[
+            table_index
+        ]
+
+        # ------------------------------------------
+        # Search nearby cells
+        # ------------------------------------------
+
+        candidates = []
+
+        for r in range(
+            max(
+                0,
+                row_index - 1,
+            ),
+            min(
+                len(table.rows),
+                row_index + 2,
+            ),
+        ):
+
+            for c in range(
+                max(
+                    0,
+                    column_index - 1,
+                ),
+                len(
+                    table.rows[r].cells
+                ),
+            ):
+
+                key = (
+                    table_index,
+                    r,
+                    c,
+                )
+
+                if key in used_locations:
+                    continue
+
+                cell_text = (
+                    table.rows[r]
+                    .cells[c]
+                    .text
+                    .strip()
+                    .lower()
+                )
+
+                # Empty cell is preferred.
+                if not cell_text:
+
+                    candidates.append(
+                        (
+                            r,
+                            c,
+                            0,
+                        )
+                    )
+
+                # Don't overwrite a cell containing
+                # another label.
+                elif label not in cell_text:
+
+                    candidates.append(
+                        (
+                            r,
+                            c,
+                            1,
+                        )
+                    )
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda item: (
+                item[2],
+                abs(
+                    item[0]
+                    - row_index
+                )
+                + abs(
+                    item[1]
+                    - column_index
+                ),
+            )
+        )
+
+        r, c, _ = candidates[0]
+
+        return {
+            "table_index": table_index,
+            "row": r,
+            "column": c,
+        }
+
+    # ==================================================
+    # SET TABLE CELL
     # ==================================================
 
     def _set_table_cell_value(
@@ -332,44 +726,58 @@ class DocxPopulator:
     ):
 
         if not cell.paragraphs:
-            cell.text = self._clean_text(value)
+
+            cell.text = (
+                self._clean_text(
+                    value
+                )
+            )
+
             return
 
-        paragraph = cell.paragraphs[0]
+        paragraph = cell.paragraphs[
+            0
+        ]
 
-        # Capture existing formatting.
         style = self._capture_run_style(
             paragraph
         )
 
-        # Preserve paragraph alignment.
         original_alignment = (
             paragraph.alignment
         )
 
-        # Clean normal table text.
-        value = self._clean_text(value)
-
-        # Apply template capitalization.
-        value = self._apply_capitalization(
-            value,
-            style.get("capitalization"),
+        value = self._clean_text(
+            value
         )
 
-        # Remove existing placeholder/value.
-        self._remove_runs(paragraph)
+        value = self._apply_capitalization(
+            value,
+            style.get(
+                "capitalization"
+            ),
+        )
 
-        # Insert new value.
-        run = paragraph.add_run(value)
+        self._remove_runs(
+            paragraph
+        )
 
-        # Restore font, size, color, etc.
+        run = paragraph.add_run(
+            value
+        )
+
         self._apply_run_style(
             run,
             style,
         )
 
-        # Center only title-like fields.
-        if self._is_title_field(field_name):
+        # ------------------------------------------
+        # Title fields are centered
+        # ------------------------------------------
+
+        if self._is_title_field(
+            field_name
+        ):
 
             paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER
@@ -381,6 +789,10 @@ class DocxPopulator:
                 original_alignment
             )
 
+    # ==================================================
+    # TITLE DETECTION
+    # ==================================================
+
     @staticmethod
     def _is_title_field(
         field_name: str,
@@ -390,33 +802,29 @@ class DocxPopulator:
             field_name
         ).strip().lower()
 
-        return "title" in normalized_name
+        return (
+            normalized_name == "title"
+            or "title" in normalized_name
+        )
 
     # ==================================================
-    # CLEAN NORMAL TEXT
+    # CLEAN TEXT
     # ==================================================
 
     @staticmethod
     def _clean_text(
         value: str,
     ) -> str:
-        """
-        Clean normal document text.
 
-        This is intentionally NOT used for code,
-        because code indentation and line breaks
-        must remain unchanged.
-        """
+        value = str(
+            value
+        )
 
-        value = str(value)
-
-        # Convert tabs to spaces.
         value = value.replace(
             "\t",
             " ",
         )
 
-        # Normalize repeated spaces.
         value = " ".join(
             value.split()
         )
@@ -424,37 +832,40 @@ class DocxPopulator:
         return value.strip()
 
     # ==================================================
-    # CAPTURE TEMPLATE STYLE
+    # CAPTURE STYLE
     # ==================================================
 
     def _capture_run_style(
         self,
         paragraph,
-    ) -> dict:
+    ):
 
         if not paragraph.runs:
 
             return {
-                "font_name": None,
+                "font_name": self.document_font,
                 "size": None,
-                "bold": None,
-                "italic": None,
-                "underline": None,
+                "bold": False,
+                "italic": False,
+                "underline": False,
                 "color": None,
                 "capitalization": "normal",
             }
 
         source_run = None
 
-        # Prefer a run containing actual text.
         for run in paragraph.runs:
 
             if run.text.strip():
+
                 source_run = run
                 break
 
         if source_run is None:
-            source_run = paragraph.runs[0]
+
+            source_run = paragraph.runs[
+                0
+            ]
 
         color = None
 
@@ -465,15 +876,29 @@ class DocxPopulator:
                 is not None
                 and source_run.font.color.rgb
             ):
+
                 color = str(
                     source_run.font.color.rgb
                 )
 
         except Exception:
+
             color = None
 
+        # ------------------------------------------
+        # IMPORTANT:
+        # Use detected document font if the
+        # template specifies one.
+        # ------------------------------------------
+
+        font_name = (
+            source_run.font.name
+            or self.document_font
+            or self.default_font
+        )
+
         return {
-            "font_name": source_run.font.name,
+            "font_name": font_name,
 
             "size": (
                 source_run.font.size.pt
@@ -481,11 +906,17 @@ class DocxPopulator:
                 else None
             ),
 
-            "bold": source_run.bold,
+            "bold": (
+                source_run.bold
+                if source_run.bold is not None
+                else False
+            ),
 
-            "italic": source_run.italic,
+            # Generated content should NOT inherit
+            # italic instruction formatting.
+            "italic": False,
 
-            "underline": source_run.underline,
+            "underline": False,
 
             "color": color,
 
@@ -497,7 +928,7 @@ class DocxPopulator:
         }
 
     # ==================================================
-    # APPLY TEMPLATE STYLE
+    # APPLY STYLE
     # ==================================================
 
     def _apply_run_style(
@@ -506,19 +937,19 @@ class DocxPopulator:
         style,
     ):
 
-        # Font name
-        if style.get("font_name"):
-
-            run.font.name = style[
+        font_name = (
+            style.get(
                 "font_name"
-            ]
+            )
+            or self.document_font
+            or self.default_font
+        )
 
-        else:
+        run.font.name = font_name
 
-            run.font.name = self.font_name
-
-        # Font size
-        if style.get("size"):
+        if style.get(
+            "size"
+        ):
 
             run.font.size = Pt(
                 style["size"]
@@ -530,22 +961,19 @@ class DocxPopulator:
                 self.format_config.body_font_size
             )
 
-        # Bold
         run.bold = style.get(
-            "bold"
+            "bold",
+            False,
         )
 
-        # Italic
-        run.italic = style.get(
-            "italic"
-        )
+        # ------------------------------------------
+        # Never copy italic instruction formatting
+        # ------------------------------------------
 
-        # Underline
-        run.underline = style.get(
-            "underline"
-        )
+        run.italic = False
 
-        # Font color
+        run.underline = False
+
         color = style.get(
             "color"
         )
@@ -561,10 +989,11 @@ class DocxPopulator:
                 )
 
             except ValueError:
+
                 pass
 
     # ==================================================
-    # CAPITALIZATION DETECTION
+    # CAPITALIZATION
     # ==================================================
 
     @staticmethod
@@ -586,32 +1015,19 @@ class DocxPopulator:
         if not letters:
             return "normal"
 
-        # Example:
-        #
-        # TITLE OF THE EXERCISE
-        #
-
         if all(
             character.isupper()
             for character in letters
         ):
-            return "uppercase"
 
-        # Example:
-        #
-        # title of the exercise
-        #
+            return "uppercase"
 
         if all(
             character.islower()
             for character in letters
         ):
-            return "lowercase"
 
-        # Example:
-        #
-        # Title Of The Exercise
-        #
+            return "lowercase"
 
         words = text.split()
 
@@ -636,12 +1052,15 @@ class DocxPopulator:
     ) -> str:
 
         if capitalization == "uppercase":
+
             return value.upper()
 
         if capitalization == "lowercase":
+
             return value.lower()
 
         if capitalization == "titlecase":
+
             return value.title()
 
         return value
@@ -675,7 +1094,9 @@ class DocxPopulator:
         image_path,
     ):
 
-        image = Path(image_path)
+        image = Path(
+            image_path
+        )
 
         if not image.exists():
 
@@ -702,7 +1123,9 @@ class DocxPopulator:
     # BODY ALIGNMENT
     # ==================================================
 
-    def _get_alignment(self):
+    def _get_alignment(
+        self,
+    ):
 
         alignment = (
             self.format_config.body_alignment

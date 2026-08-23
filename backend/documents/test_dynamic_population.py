@@ -1,13 +1,21 @@
 from pathlib import Path
 
-from backend.documents.template_analyzer import TemplateAnalyzer
-from backend.documents.template_understanding import TemplateUnderstanding
-from backend.documents.template_map import TemplateMapBuilder
-from backend.documents.docx_populator import DocxPopulator
+from backend.documents.template_analyzer import (
+    TemplateAnalyzer,
+)
+from backend.documents.template_understanding import (
+    TemplateUnderstanding,
+)
+from backend.documents.template_map import (
+    TemplateMapBuilder,
+)
+from backend.documents.docx_populator import (
+    DocxPopulator,
+)
 
 
 TEMPLATE = (
-    r"C:\Users\ROKITH\Downloads\Registration Test.docx"
+    r"C:\Users\ROKITH\Downloads\Record Template.docx"
 )
 
 OUTPUT = (
@@ -17,17 +25,17 @@ OUTPUT = (
 
 def main():
 
-    # ------------------------------------------
-    # 1. Analyze template
-    # ------------------------------------------
+    # ==================================================
+    # 1. ANALYZE TEMPLATE
+    # ==================================================
 
     analysis = TemplateAnalyzer().analyze(
         TEMPLATE
     )
 
-    # ------------------------------------------
-    # 2. Understand template
-    # ------------------------------------------
+    # ==================================================
+    # 2. UNDERSTAND TEMPLATE
+    # ==================================================
 
     understanding = (
         TemplateUnderstanding().understand(
@@ -35,9 +43,9 @@ def main():
         )
     )
 
-    # ------------------------------------------
-    # 3. Build semantic map
-    # ------------------------------------------
+    # ==================================================
+    # 3. BUILD TEMPLATE MAP
+    # ==================================================
 
     template_map = (
         TemplateMapBuilder().build(
@@ -45,22 +53,63 @@ def main():
         )
     )
 
-    # ------------------------------------------
-    # 4. User-provided content
-    # ------------------------------------------
+    print("\nDetected table fields:\n")
+
+    for field in template_map.get(
+        "table_fields",
+        [],
+    ):
+
+        print(
+            field["name"],
+            "->",
+            field["value_location"],
+        )
+
+    # ==================================================
+    # 4. CONTENT
+    # ==================================================
 
     content = {
-        "registration_number": "URK24AI1041",
-        "title": "CNN Image Classification",
 
-        # Optional fields intentionally empty.
-        "youtube_link": "",
-        "date": "",
+        "exercise_number":
+            "Ex. No. 1",
+
+        "title":
+            "CNN Image Classification",
+
+        "youtube_link":
+            "",
+
+        "date":
+            "23.08.2026",
+
+        "aim":
+            "To develop a CNN model for image classification.",
+
+        "description":
+            (
+                "A convolutional neural network is used "
+                "to learn visual features from images "
+                "and classify them into different categories."
+            ),
+
+        "program":
+            'print("CNN Image Classification")',
+
+        "output":
+            "",
+
+        "result":
+            (
+                "The CNN model successfully classified "
+                "the images and achieved the intended objective."
+            ),
     }
 
-    # ------------------------------------------
-    # 5. Populate document
-    # ------------------------------------------
+    # ==================================================
+    # 5. POPULATE DOCX
+    # ==================================================
 
     result = DocxPopulator().populate(
         template_path=TEMPLATE,
@@ -70,7 +119,7 @@ def main():
     )
 
     print(
-        f"Document created: {result}"
+        f"\nDocument created successfully:\n{result}"
     )
 
 
