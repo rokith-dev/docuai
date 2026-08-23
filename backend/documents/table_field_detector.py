@@ -4,23 +4,7 @@ from backend.documents.semantic_fields import SemanticFieldDetector
 
 
 class TableFieldDetector:
-    """
-    Detect semantic fields inside DOCX tables.
-
-    The detector distinguishes between:
-
-    1. Labels
-       Example: "YouTube Link"
-
-    2. Existing values
-       Example: "URK24AI1041"
-
-    3. Placeholders
-       Example: "DD.MM.YYYY"
-
-    4. Empty value cells
-       Example: ["YouTube Link", ""]
-    """
+    """Detect semantic fields and their value locations in tables."""
 
     DATE_PLACEHOLDERS = {
         "dd.mm.yyyy",
@@ -33,7 +17,6 @@ class TableFieldDetector:
     }
 
     TITLE_PLACEHOLDERS = {
-        "title",
         "title of the exercise",
         "exercise title",
         "experiment title",
@@ -51,7 +34,7 @@ class TableFieldDetector:
 
     def __init__(
         self,
-        semantic_detector: SemanticFieldDetector | None = None,
+        semantic_detector=None,
     ):
         self.semantic_detector = (
             semantic_detector
@@ -63,9 +46,6 @@ class TableFieldDetector:
     # ==================================================
 
     def detect(self, table: dict) -> list[dict]:
-        """
-        Detect fields from a single analyzed table.
-        """
 
         rows = table.get("rows", [])
 
@@ -81,52 +61,34 @@ class TableFieldDetector:
                     continue
 
                 # ------------------------------------------
-                # Case 1:
-                # This cell is a known placeholder/value.
-                # ------------------------------------------
-
-                placeholder_field = (
-                    self._detect_placeholder_field(text)
-                )
-
-                if placeholder_field:
-                    field = self._build_placeholder_field(
-                        table=table,
-                        row_index=row_index,
-                        column_index=column_index,
-                        text=text,
-                        field_name=placeholder_field,
-                    )
-
-                    if field:
-                        fields.append(field)
-
-                    continue
-
-                # ------------------------------------------
-                # Case 2:
-                # Existing exercise number.
-                #
-                # Example:
-                # "Ex. No. 1"
+                # Existing exercise number
                 # ------------------------------------------
 
                 if self._is_exercise_number(text):
+
                     fields.append(
                         self._build_existing_value(
-                            table=table,
-                            row_index=row_index,
-                            column_index=column_index,
-                            field_name="exercise_number",
-                            text=text,
+                            table,
+                            row_index,
+                            column_index,
+                            "exercise_number",
+                            text,
                         )
                     )
 
                     continue
 
                 # ------------------------------------------
-                # Case 3:
-                # This is a semantic label.
+                # IMPORTANT:
+                #
+                # First check whether the text is a
+                # semantic LABEL.
+                #
+                # This must happen BEFORE placeholder
+                # detection.
+                #
+                # "Title" = label
+                # "Title of the Exercise" = placeholder
                 # ------------------------------------------
 
                 semantic_field = (
@@ -150,116 +112,83 @@ class TableFieldDetector:
                     continue
 
                 # ------------------------------------------
-                # Case 4:
-                # Unknown text.
-                #
-                # Don't automatically create a field.
-                # It could simply be normal table text.
+                # Placeholder/value
                 # ------------------------------------------
+
+                placeholder_field = (
+                    self._detect_placeholder_field(text)
+                )
+
+                if placeholder_field:
+
+                    fields.append(
+                        self._build_placeholder_field(
+                            table,
+                            row_index,
+                            column_index,
+                            text,
+                            placeholder_field,
+                        )
+                    )
 
         return self._remove_duplicates(fields)
 
     # ==================================================
-    # PLACEHOLDER DETECTION
-    # ==================================================
-
-    def _detect_placeholder_field(
-        self,
-        text: str,
-    ) -> str | None:
-
-        normalized = self._normalize(text)
-
-        # Date placeholder
-        if normalized in self.DATE_PLACEHOLDERS:
-            return "date"
-
-        # Generic date format
-        if re.fullmatch(
-            r"d{2}[./-]m{2}[./-]y{4}",
-            normalized,
-        ):
-            return "date"
-
-        # Title placeholder
-        if normalized in self.TITLE_PLACEHOLDERS:
-            return "title"
-
-        return None
-
-    # ==================================================
-    # LABEL FIELD
+    # LABEL → VALUE
     # ==================================================
 
     def _build_label_field(
         self,
-        table: dict,
-        rows: list,
-        row_index: int,
-        column_index: int,
-        label: str,
-        field_name: str,
-    ) -> dict | None:
+        table,
+        rows,
+        row_index,
+        column_index,
+        label,
+        field_name,
+    ):
 
         value_location = self._find_value_cell(
-            rows=rows,
-            row_index=row_index,
-            column_index=column_index,
+            rows,
+            row_index,
+            column_index,
         )
 
-        # ------------------------------------------
-        # Example:
-        #
-        # YouTube Link | ""
-        #
-        # We have a label and an empty value cell.
-        # ------------------------------------------
+        if value_location is None:
+            return None
 
-        if value_location:
-
-            return {
-                "name": field_name,
-                "label": label,
-                "standard": True,
-                "kind": "label_value",
-                "label_location": {
-                    "table_index": table["index"],
-                    "row": row_index,
-                    "column": column_index,
-                },
-                "value_location": {
-                    "table_index": table["index"],
-                    "row": value_location["row"],
-                    "column": value_location["column"],
-                },
-                "current_value": value_location["value"],
-                "placeholder": self._is_placeholder(
-                    value_location["value"]
-                ),
-            }
-
-        # ------------------------------------------
-        # Some templates may use a single cell:
-        #
-        # "TITLE: ______"
-        #
-        # We don't automatically overwrite it yet.
-        # ------------------------------------------
-
-        return None
+        return {
+            "name": field_name,
+            "label": label,
+            "standard": True,
+            "kind": "label_value",
+            "label_location": {
+                "table_index": table["index"],
+                "row": row_index,
+                "column": column_index,
+            },
+            "value_location": {
+                "table_index": table["index"],
+                "row": value_location["row"],
+                "column": value_location["column"],
+            },
+            "current_value": value_location["value"],
+            "placeholder": self._is_placeholder(
+                value_location["value"]
+            ),
+        }
 
     # ==================================================
-    # PLACEHOLDER FIELD
+    # PLACEHOLDER
     # ==================================================
 
     def _build_placeholder_field(
         self,
-        table: dict,
-        row_index: int,
-        column_index: int,
-        text: str,
-        field_name: str,
-    ) -> dict:
+        table,
+        row_index,
+        column_index,
+        text,
+        field_name,
+    ):
 
         return {
             "name": field_name,
@@ -286,12 +215,12 @@ class TableFieldDetector:
 
     def _build_existing_value(
         self,
-        table: dict,
-        row_index: int,
-        column_index: int,
-        field_name: str,
-        text: str,
-    ) -> dict:
+        table,
+        row_index,
+        column_index,
+        field_name,
+        text,
+    ):
 
         return {
             "name": field_name,
@@ -318,22 +247,17 @@ class TableFieldDetector:
 
     def _find_value_cell(
         self,
-        rows: list,
-        row_index: int,
-        column_index: int,
-    ) -> dict | None:
+        rows,
+        row_index,
+        column_index,
+    ):
 
         row = rows[row_index]
 
         # ------------------------------------------
-        # Pattern 1:
+        # Horizontal layout:
         #
-        # Label | Value
-        #
-        # Example:
-        #
-        # YouTube Link | ""
-        # Date          | DD.MM.YYYY
+        # LABEL | VALUE
         # ------------------------------------------
 
         next_column = column_index + 1
@@ -351,15 +275,10 @@ class TableFieldDetector:
             }
 
         # ------------------------------------------
-        # Pattern 2:
+        # Vertical layout:
         #
-        # Label
-        # Value
-        #
-        # Example:
-        #
-        # Date
-        # DD.MM.YYYY
+        # LABEL
+        # VALUE
         # ------------------------------------------
 
         next_row = row_index + 1
@@ -368,7 +287,9 @@ class TableFieldDetector:
 
             next_row_data = rows[next_row]
 
-            if column_index < len(next_row_data):
+            if column_index < len(
+                next_row_data
+            ):
 
                 value = self._get_cell_text(
                     next_row_data[column_index]
@@ -383,13 +304,67 @@ class TableFieldDetector:
         return None
 
     # ==================================================
+    # PLACEHOLDER DETECTION
+    # ==================================================
+
+    def _detect_placeholder_field(
+        self,
+        text,
+    ):
+
+        normalized = self._normalize(text)
+
+        # Date placeholders
+        if normalized in self.DATE_PLACEHOLDERS:
+            return "date"
+
+        if re.fullmatch(
+            r"d{2}[./-]m{2}[./-]y{4}",
+            normalized,
+        ):
+            return "date"
+
+        # Title placeholders
+        if normalized in self.TITLE_PLACEHOLDERS:
+            return "title"
+
+        return None
+
+    def _is_placeholder(
+        self,
+        text,
+    ):
+
+        return (
+            self._detect_placeholder_field(text)
+            is not None
+        )
+
+    # ==================================================
+    # EXERCISE NUMBER
+    # ==================================================
+
+    @classmethod
+    def _is_exercise_number(
+        cls,
+        text,
+    ):
+
+        return bool(
+            cls.EXERCISE_NUMBER_PATTERN.fullmatch(
+                text.strip()
+            )
+        )
+
+    # ==================================================
     # HELPERS
     # ==================================================
 
     @staticmethod
-    def _get_cell_text(cell) -> str:
+    def _get_cell_text(cell):
 
         if isinstance(cell, dict):
+
             return str(
                 cell.get("text", "")
             ).strip()
@@ -397,7 +372,7 @@ class TableFieldDetector:
         return str(cell).strip()
 
     @staticmethod
-    def _normalize(text: str) -> str:
+    def _normalize(text):
 
         text = text.lower().strip()
 
@@ -411,32 +386,10 @@ class TableFieldDetector:
 
         return text.strip()
 
-    def _is_placeholder(
-        self,
-        text: str,
-    ) -> bool:
-
-        return (
-            self._detect_placeholder_field(text)
-            is not None
-        )
-
-    @classmethod
-    def _is_exercise_number(
-        cls,
-        text: str,
-    ) -> bool:
-
-        return bool(
-            cls.EXERCISE_NUMBER_PATTERN.fullmatch(
-                text.strip()
-            )
-        )
-
     @staticmethod
     def _remove_duplicates(
-        fields: list[dict],
-    ) -> list[dict]:
+        fields,
+    ):
 
         unique = {}
 

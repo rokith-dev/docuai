@@ -2,22 +2,32 @@ import re
 
 
 class SemanticFieldDetector:
-    """Detect standard document fields from template labels."""
+    """Detect standard semantic fields from template labels."""
 
     FIELD_ALIASES = {
         "registration_number": [
             "registration number",
-            "register number",
-            "reg no",
-            "reg. no",
-            "reg no.",
             "registration no",
             "registration no.",
+            "registration #",
+            "register number",
+            "register no",
+            "register no.",
+            "reg number",
+            "reg no",
+            "reg no.",
+            "reg. no",
+            "reg #",
             "student id",
             "student number",
+            "student no",
+            "student no.",
             "roll number",
             "roll no",
+            "roll no.",
+            "roll #",
         ],
+
         "title": [
             "title",
             "title of the exercise",
@@ -26,42 +36,56 @@ class SemanticFieldDetector:
             "experiment name",
             "exercise name",
         ],
+
         "youtube_link": [
             "youtube link",
             "youtube",
+            "youtube url",
             "video link",
             "video url",
         ],
+
         "date": [
             "date",
             "date of exercise",
             "exercise date",
+            "date of experiment",
+            "experiment date",
             "submission date",
         ],
+
         "aim": [
             "aim",
             "objective",
+            "objective of the experiment",
             "purpose",
         ],
+
         "description": [
             "description",
             "introduction",
             "overview",
             "concept",
+            "theory",
         ],
+
         "program": [
             "program",
             "code",
             "source code",
+            "program code",
             "implementation",
             "python code",
         ],
+
         "output": [
             "output",
             "output screenshot",
             "screenshot",
+            "output image",
             "result screenshot",
         ],
+
         "result": [
             "result",
             "conclusion",
@@ -98,12 +122,18 @@ class SemanticFieldDetector:
     @staticmethod
     def _normalize(text: str) -> str:
         text = text.lower().strip()
-        text = re.sub(r"\s+", " ", text)
 
-        text = text.replace(":", "")
-        text = text.strip()
+        # Normalize whitespace.
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
 
-        return text
+        # Remove common punctuation.
+        text = text.rstrip(":")
+
+        return text.strip()
 
     @staticmethod
     def _create_field_name(label: str) -> str:
