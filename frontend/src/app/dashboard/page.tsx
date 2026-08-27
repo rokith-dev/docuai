@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { API_BASE_URL } from "../../lib/api";
 
 interface RecentDocument {
 	id: number;
@@ -13,7 +14,6 @@ interface RecentDocument {
 
 type Theme = "light" | "dark";
 
-const API = "http://127.0.0.1:8000";
 
 function Icon({ name, size = 16 }: { name: string; size?: number }) {
 	const paths: Record<string, React.ReactNode> = {
@@ -39,10 +39,8 @@ function Icon({ name, size = 16 }: { name: string; size?: number }) {
 const navigation = [
 	["Dashboard", "/dashboard", "grid"],
 	["Documents", "/documents", "file"],
-	["Projects", "/projects", "folder"],
 	["Templates", "/templates", "template"],
 	["Favorites", "/favorites", "star"],
-	["Knowledge Base", "/knowledge-base", "book"],
 ] as const;
 
 export default function DashboardPage() {
@@ -55,7 +53,7 @@ export default function DashboardPage() {
 	useEffect(() => {
 		const savedTheme = window.localStorage.getItem("docuai-theme");
 		if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
-		fetch(`${API}/api/documents`)
+		fetch(`${API_BASE_URL}/api/documents`)
 			.then((response) => response.ok ? response.json() : null)
 			.then((data) => setRecentDocuments((data?.documents ?? []).slice(0, 4)))
 			.catch(() => setRecentDocuments([]));
@@ -103,7 +101,7 @@ export default function DashboardPage() {
 				<button className="resize-handle" aria-label="Resize sidebar" onPointerDown={() => { resizing.current = true; }} />
 			</aside>
 			<main className="dashboard-main">
-				<header className="dashboard-header"><button className="mobile-menu" aria-label="Open menu" onClick={() => setDrawerOpen(true)}><Icon name="menu" size={18} /></button><div className="mobile-brand"><div className="brand-mark">D</div><span>DocuAI</span></div><div className="breadcrumb">Workspace <b>/</b> <strong>AI Document Studio</strong></div><div className="header-actions"><span className="credits">✦ 850 AI Credits</span><button aria-label="Settings" className="icon-button"><Icon name="settings" size={15} /></button><div className="mini-avatar">JD</div></div></header>
+				<header className="dashboard-header"><button className="mobile-menu" aria-label="Open menu" onClick={() => setDrawerOpen(true)}><Icon name="menu" size={18} /></button><div className="mobile-brand"><div className="brand-mark">D</div><span>DocuAI</span></div><div className="breadcrumb">Workspace <b>/</b> <strong>AI Document Studio</strong></div><div className="header-actions"><button aria-label="Settings" className="icon-button"><Icon name="settings" size={15} /></button><div className="mini-avatar">JD</div></div></header>
 				<section className="dashboard-content">
 					<div className="welcome"><p className="eyebrow">AI DOCUMENT STUDIO</p><h1>Good morning <span aria-hidden="true">👋</span></h1><p>What would you like to create today?</p></div>
 					<div className="composer-wrap"><div className="composer"><input aria-label="Document prompt" placeholder="What would you like to create?" /><div className="composer-footer"><div className="composer-tools"><button aria-label="Attach file"><Icon name="plus" size={16} /></button><button aria-label="AI tools"><span>✣</span></button></div><button className="send-button" aria-label="Send"><Icon name="send" size={15} /></button></div></div><div className="quick-actions"><Link href="/create"><Icon name="plus" size={14} /> Create Document</Link><Link href="/create"><Icon name="template" size={14} /> Analyze Template</Link><Link href="/create"><span>✦</span> Generate with AI</Link></div></div>

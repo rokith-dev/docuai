@@ -6,12 +6,43 @@ create table if not exists projects (
     updated_at timestamptz not null default now()
 );
 
+alter table projects add column if not exists name text;
+alter table projects add column if not exists description text;
+alter table projects add column if not exists created_at timestamptz not null default now();
+alter table projects add column if not exists updated_at timestamptz not null default now();
+
+alter table documents add column if not exists title text;
+alter table documents add column if not exists description text;
+alter table documents add column if not exists content text;
+alter table documents add column if not exists status text not null default 'completed';
+alter table documents add column if not exists created_at timestamptz not null default now();
+alter table documents add column if not exists updated_at timestamptz not null default now();
+
 alter table documents add column if not exists project_id bigint references projects(id) on delete set null;
+
+do $$
+begin
+    if not exists (
+        select 1
+        from pg_constraint constraint_record
+        where constraint_record.conrelid = 'public.documents'::regclass
+          and constraint_record.confrelid = 'public.projects'::regclass
+          and constraint_record.contype = 'f'
+    ) then
+        alter table documents
+            add constraint documents_project_id_fkey
+            foreign key (project_id)
+            references projects(id)
+            on delete set null;
+    end if;
+end
+$$;
+
 alter table documents add column if not exists document_name text;
 alter table documents add column if not exists template_name text;
 alter table documents add column if not exists file_path text;
 alter table documents add column if not exists is_favorite boolean not null default false;
-alter table documents add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists documents_project_id_idx on documents(project_id);
 create index if not exists documents_favorite_idx on documents(is_favorite) where is_favorite = true;
+create index if not exists documents_created_at_idx on documents(created_at desc);

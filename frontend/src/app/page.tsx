@@ -5,6 +5,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { redirect } from "next/navigation";
 
 
 // ==================================================
@@ -65,6 +66,8 @@ interface Project {
 // ==================================================
 
 export default function CreatePage() {
+
+  redirect("/dashboard");
 
   // ==================================================
   // STATE

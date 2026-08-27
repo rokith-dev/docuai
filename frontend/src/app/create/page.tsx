@@ -4,6 +4,8 @@ import {
   ChangeEvent,
   useState,
 } from "react";
+import AppShell from "../../components/layout/AppShell";
+import { API_BASE_URL } from "../../lib/api";
 
 
 type TemplateField = {
@@ -55,6 +57,11 @@ type UserContent = Record<
   string
 >;
 
+type GeneratedDocument = {
+  url: string;
+  fileName: string;
+};
+
 
 export default function CreatePage() {
 
@@ -85,6 +92,21 @@ export default function CreatePage() {
   const [success, setSuccess] =
     useState("");
 
+  const [generatedDocument, setGeneratedDocument] =
+    useState<GeneratedDocument | null>(null);
+
+  const [generationLoading, setGenerationLoading] =
+    useState(false);
+
+  const [topic, setTopic] =
+    useState("");
+
+  const [generatingAI, setGeneratingAI] =
+    useState(false);
+
+  const [downloadingDocument, setDownloadingDocument] =
+    useState(false);
+
 
   // ==================================================
   // FILE SELECTION
@@ -102,6 +124,7 @@ export default function CreatePage() {
     setResult(null);
     setContent({});
     setOutputImage(null);
+    setGeneratedDocument(null);
 
     if (!selectedFile) {
 
@@ -150,6 +173,7 @@ export default function CreatePage() {
     setResult(null);
     setContent({});
     setOutputImage(null);
+    setGeneratedDocument(null);
 
     try {
 
@@ -163,7 +187,7 @@ export default function CreatePage() {
 
       const response =
         await fetch(
-          "http://127.0.0.1:8000/api/templates/analyze",
+          `${API_BASE_URL}/api/templates/analyze`,
           {
             method: "POST",
             body: formData,
@@ -234,9 +258,9 @@ export default function CreatePage() {
     } catch (err) {
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to analyze the template.",
+        err instanceof TypeError
+          ? "Unable to connect to DocuAI server."
+          : "Template analysis failed. Please try again.",
       );
 
     } finally {
@@ -249,6 +273,36 @@ export default function CreatePage() {
   // ==================================================
   // UPDATE FIELD
   // ==================================================
+
+  async function generateAIContent() {
+    if (!result) {
+      setError("Please analyze the template first.");
+      return;
+    }
+    if (!topic.trim()) {
+      setError("Please enter a document topic first.");
+      return;
+    }
+
+    setGeneratingAI(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/ai/generate-content`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: topic.trim(), fields: result.fields }),
+      });
+      if (!response.ok) throw new Error("AI content generation failed. Please try again.");
+      const data: { content?: UserContent } = await response.json();
+      if (!data.content) throw new Error("AI content generation failed. Please try again.");
+      setContent((previous) => ({ ...previous, ...data.content }));
+      setSuccess("AI content generated. Review and edit it before generating the document.");
+    } catch (err) {
+      setError(err instanceof TypeError ? "Unable to connect to DocuAI server." : err instanceof Error ? err.message : "AI content generation failed. Please try again.");
+    } finally {
+      setGeneratingAI(false);
+    }
+  }
 
   function updateContent(
     fieldName: string,
@@ -594,8 +648,10 @@ export default function CreatePage() {
     }
 
     setLoading(true);
+    setGenerationLoading(true);
     setError("");
     setSuccess("");
+    setGeneratedDocument(null);
 
     try {
 
@@ -638,7 +694,7 @@ export default function CreatePage() {
 
       const response =
         await fetch(
-          "http://127.0.0.1:8000/api/templates/generate",
+          `${API_BASE_URL}/api/templates/generate`,
           {
             method: "POST",
             body: formData,
@@ -684,58 +740,62 @@ export default function CreatePage() {
         await response.blob();
 
 
-      // --------------------------------------------
-      // Create download
-      // --------------------------------------------
-
       const downloadUrl =
         window.URL.createObjectURL(
           blob,
         );
 
-      const link =
-        document.createElement(
-          "a",
-        );
-
-      link.href =
-        downloadUrl;
-
-      link.download =
-        `DocuAI_${file.name.replace(
-          /\.docx$/i,
-          "",
-        )}.docx`;
-
-      document.body.appendChild(
-        link,
-      );
-
-      link.click();
-
-      link.remove();
-
-      window.URL.revokeObjectURL(
-        downloadUrl,
-      );
+      setGeneratedDocument({
+        url: downloadUrl,
+        fileName: `DocuAI_${file.name.replace(/\.docx$/i, "")}.docx`,
+      });
 
 
       setSuccess(
-        "Document generated and downloaded successfully.",
+        "Document generated successfully.",
       );
 
     } catch (err) {
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate the document.",
+        err instanceof TypeError
+          ? "Unable to connect to DocuAI server."
+          : err instanceof Error
+            ? err.message
+            : "Document generation failed. Please try again.",
       );
 
     } finally {
 
       setLoading(false);
+      setGenerationLoading(false);
     }
+  }
+
+  function downloadDocx() {
+    if (!generatedDocument) return;
+
+    setDownloadingDocument(true);
+    try {
+      const link = document.createElement("a");
+      link.href = generatedDocument.url;
+      link.download = generatedDocument.fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      window.setTimeout(() => setDownloadingDocument(false), 300);
+    }
+  }
+
+  function editDocument() {
+    setGeneratedDocument(null);
+    window.setTimeout(() => {
+      document.getElementById("document-editor")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
   }
 
 
@@ -744,7 +804,7 @@ export default function CreatePage() {
   // ==================================================
 
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-10">
+    <AppShell title="Create Document"><main className="min-h-screen bg-[var(--app-bg)] px-6 py-10">
 
       <div className="mx-auto max-w-5xl">
 
@@ -926,8 +986,59 @@ export default function CreatePage() {
             DYNAMIC FORM
         ========================================== */}
 
-        {result && (
-          <section className="
+        {generationLoading && (
+          <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm" aria-live="polite">
+            <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">AI generation</p>
+            <h2 className="mt-3 text-3xl font-semibold text-gray-900">Creating your document...</h2>
+            <div className="mt-8 space-y-4 text-sm">
+              {["Template uploaded", "Analyzing template", "Understanding document structure", "Generating content", "Applying formatting", "Preparing document"].map((step, index) => (
+                <div key={step} className="flex items-center gap-3">
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${index < 4 ? "bg-green-100 text-green-700" : index === 4 ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-400"}`}>
+                    {index < 4 ? "✓" : index === 4 ? "•" : ""}
+                  </span>
+                  <span className={index < 5 ? "text-gray-900" : "text-gray-400"}>{step}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {generatedDocument && result && (
+          <section className="mt-8 rounded-2xl border border-gray-200 bg-gray-100 p-5 shadow-sm sm:p-8">
+            <div className="flex flex-col gap-5 border-b border-gray-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-green-700">✓ Document Ready</p>
+                <h2 className="mt-2 text-xl font-semibold text-gray-900">{generatedDocument.fileName}</h2>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={editDocument} className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-50">Edit Document</button>
+                <details className="relative">
+                  <summary className="cursor-pointer list-none rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700">Download</summary>
+                  <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                    <button type="button" onClick={downloadDocx} disabled={downloadingDocument} className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-800 hover:bg-indigo-50 disabled:opacity-50">{downloadingDocument ? "Preparing download..." : "Word (.docx)"}</button>
+                    <p className="px-3 py-2 text-xs text-gray-400">DOC and PDF conversion is unavailable.</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div className="mt-8 overflow-x-auto pb-2">
+              <article className="mx-auto min-h-[900px] w-full max-w-[760px] bg-white px-8 py-10 text-gray-900 shadow-md sm:px-16 sm:py-14">
+                <header className="border-b-2 border-gray-900 pb-5 text-center">
+                  <h1 className="text-2xl font-bold uppercase tracking-wide">{result.file_name.replace(/\.docx$/i, "")}</h1>
+                  {result.table_fields.length > 0 && <div className="mt-5 grid grid-cols-2 border border-gray-400 text-left text-xs">
+                    {result.table_fields.slice(0, 6).map((field) => <div key={field.name} className="border-b border-r border-gray-300 p-2"><span className="font-semibold">{field.label}</span><p className="mt-1">{content[field.name] || "-"}</p></div>)}
+                  </div>}
+                </header>
+                <div className="mt-8 space-y-7 text-sm leading-7">
+                  {result.fields.map((field) => content[field.name] && <section key={field.name}><h3 className="mb-2 border-b border-gray-300 pb-1 text-base font-bold">{field.label}</h3><p className={field.content_type === "code" ? "whitespace-pre-wrap font-mono text-xs leading-5" : "whitespace-pre-wrap"}>{content[field.name]}</p></section>)}
+                </div>
+              </article>
+            </div>
+          </section>
+        )}
+
+        {result && !generatedDocument && (
+          <section id="document-editor" className="
             mt-8
             rounded-2xl
             border
@@ -958,6 +1069,18 @@ export default function CreatePage() {
                 {result.file_name}
               </p>
 
+            </div>
+
+            <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50 p-5">
+              <label htmlFor="document-topic" className="block text-sm font-semibold text-gray-900">
+                What would you like to create?
+              </label>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                <input id="document-topic" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Describe your experiment or document topic" className="min-w-0 flex-1 rounded-xl border border-indigo-100 bg-white p-3 text-sm text-gray-900 outline-none focus:border-indigo-500" />
+                <button type="button" onClick={generateAIContent} disabled={generatingAI || !topic.trim()} className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  {generatingAI ? "Generating AI content..." : "Generate with AI"}
+                </button>
+              </div>
             </div>
 
 
@@ -1138,6 +1261,6 @@ export default function CreatePage() {
 
       </div>
 
-    </main>
+    </main></AppShell>
   );
 }

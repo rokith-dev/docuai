@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import json
+import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -9,7 +10,9 @@ from backend.documents.docx_populator import DocxPopulator
 from backend.documents.template_analyzer import TemplateAnalyzer
 from backend.documents.template_understanding import TemplateUnderstanding
 from backend.documents.template_map import TemplateMapBuilder
-from backend.database.repositories.managed_documents import ManagedDocumentRepository
+from backend.database.repositories.managed_documents import (
+    ManagedDocumentRepository,
+)
 from backend.storage.local_storage import save_generated_file
 
 
@@ -17,6 +20,8 @@ router = APIRouter(
     prefix="/api/templates",
     tags=["Templates"],
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ==================================================
@@ -30,7 +35,6 @@ def analyze_uploaded_template(
     Analyze a DOCX template and build its
     dynamic semantic map.
     """
-
     analysis = TemplateAnalyzer().analyze(
         file_path
     )
@@ -164,10 +168,8 @@ async def analyze_template(
             temporary_path
             and temporary_path.exists()
         ):
-
             try:
                 temporary_path.unlink()
-
             except OSError:
                 pass
 
@@ -224,12 +226,22 @@ async def generate_document(
 
     try:
 
+        # ==========================================
+        # PROJECT ID
+        # ==========================================
+
         parsed_project_id = None
 
         if project_id and project_id.strip():
+
             try:
-                parsed_project_id = int(project_id)
+
+                parsed_project_id = int(
+                    project_id
+                )
+
             except ValueError as error:
+
                 raise HTTPException(
                     status_code=400,
                     detail="Invalid project ID.",
@@ -265,7 +277,7 @@ async def generate_document(
             )
 
         # ==========================================
-        # SAVE TEMPLATE
+        # SAVE TEMPLATE TEMPORARILY
         # ==========================================
 
         with NamedTemporaryFile(
@@ -381,36 +393,64 @@ async def generate_document(
             )
         )
 
+        # ==========================================
+        # DOCUMENT NAME
+        # ==========================================
+
         safe_document_name = (
             document_name.strip()
-            if document_name and document_name.strip()
-            else f"DocuAI_{Path(file.filename).stem}"
+            if document_name
+            and document_name.strip()
+            else (
+                f"DocuAI_"
+                f"{Path(file.filename).stem}"
+            )
         )
 
-        if not safe_document_name.lower().endswith(".docx"):
+        if not safe_document_name.lower().endswith(
+            ".docx"
+        ):
+
             safe_document_name += ".docx"
+
+        # ==========================================
+        # STORE GENERATED FILE
+        # ==========================================
 
         stored_file = save_generated_file(
             generated_file,
             safe_document_name,
         )
 
+        # ==========================================
+        # SAVE DOCUMENT METADATA
+        # ==========================================
+        #
+        # IMPORTANT:
+        # The documents table has required fields:
+        # title, description and content.
+        #
+        # We therefore save the generated content
+        # together with the Phase 4 metadata.
+        # ==========================================
+
         ManagedDocumentRepository().create(
             document_name=safe_document_name,
-            template_name=Path(file.filename).name,
-            file_path=str(stored_file),
+            template_name=Path(
+                file.filename
+            ).name,
+            file_path=str(
+                stored_file
+            ),
+            content=json.dumps(
+                user_content
+            ),
             project_id=parsed_project_id,
         )
 
         # ==========================================
         # RETURN GENERATED DOCX
         # ==========================================
-
-        download_name = (
-            f"DocuAI_"
-            f"{Path(file.filename).stem}"
-            f".docx"
-        )
 
         return FileResponse(
             path=str(stored_file),
@@ -440,11 +480,16 @@ async def generate_document(
 
     except Exception as error:
 
+        logger.exception(
+            "DOCX generation failed for template %s",
+            file.filename,
+        )
+
         raise HTTPException(
             status_code=500,
             detail=(
-                "Failed to generate the document: "
-                f"{error}"
+                "Document generation failed. "
+                "Please try again."
             ),
         ) from error
 
@@ -461,7 +506,6 @@ async def generate_document(
 
             try:
                 template_path.unlink()
-
             except OSError:
                 pass
 
@@ -472,14 +516,11 @@ async def generate_document(
 
             try:
                 image_path.unlink()
-
             except OSError:
                 pass
 
-        # ------------------------------------------
         # IMPORTANT:
         # Do NOT delete output_path here.
         #
         # FileResponse still needs the generated
         # DOCX after this function returns.
-        # ------------------------------------------
