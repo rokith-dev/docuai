@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.ai.content_generator import AIContentGenerator
+from backend.api.dependencies import get_current_user
 
 
 class AIContentRequest(BaseModel):
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 
 
 @router.post("/generate-content")
-def generate_content(request: AIContentRequest):
+def generate_content(request: AIContentRequest, user: dict = Depends(get_current_user)):
     try:
         content = AIContentGenerator().generate(
             topic=request.topic,

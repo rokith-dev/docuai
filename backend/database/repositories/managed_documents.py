@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from backend.database.client import get_supabase_client
 
@@ -15,8 +16,9 @@ class ManagedDocumentRepository:
         file_path: str,
         content: str,
         project_id: int | None = None,
-    ) -> dict:
-        response = self.client.table(self.table).insert({
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        values = {
             "title": document_name,
             "description": f"Generated from template: {template_name}",
             "content": content,
@@ -26,7 +28,15 @@ class ManagedDocumentRepository:
             "project_id": project_id,
             "status": "generated",
             "is_favorite": False,
-        }).execute()
+            "user_id": user_id,
+        }
+
+        response = (
+            self.client
+            .table(self.table)
+            .insert(values)
+            .execute()
+        )
 
         if not response.data:
             raise RuntimeError(
@@ -39,7 +49,8 @@ class ManagedDocumentRepository:
         self,
         project_id: int | None = None,
         favorites_only: bool = False,
-    ) -> list[dict]:
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         query = (
             self.client
             .table(self.table)
@@ -54,40 +65,59 @@ class ManagedDocumentRepository:
                 project_id,
             )
 
+        if user_id is not None:
+            query = query.eq(
+                "user_id",
+                user_id,
+            )
+
         if favorites_only:
             query = query.eq(
                 "is_favorite",
                 True,
             )
 
-        return query.execute().data
+        response = query.execute()
+
+        return response.data or []
 
     def get(
         self,
         document_id: int,
-    ) -> dict | None:
-        response = (
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        query = (
             self.client
             .table(self.table)
             .select("*")
             .eq("id", document_id)
+        )
+
+        if user_id is not None:
+            query = query.eq(
+                "user_id",
+                user_id,
+            )
+
+        response = (
+            query
             .limit(1)
             .execute()
         )
 
-        return (
-            response.data[0]
-            if response.data
-            else None
-        )
+        if response.data:
+            return response.data[0]
+
+        return None
 
     def update(
         self,
         document_id: int,
         project_id: int | None = None,
         document_name: str | None = None,
-    ) -> dict | None:
-        values = {
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        values: dict[str, Any] = {
             "updated_at": datetime.utcnow().isoformat()
         }
 
@@ -95,67 +125,97 @@ class ManagedDocumentRepository:
             values["project_id"] = project_id
 
         if document_name is not None:
-            values["document_name"] = (
-                document_name.strip()
-            )
+            clean_name = document_name.strip()
 
-            values["title"] = (
-                document_name.strip()
-            )
+            if clean_name:
+                values["document_name"] = clean_name
+                values["title"] = clean_name
 
-        response = (
+        query = (
             self.client
             .table(self.table)
             .update(values)
             .eq("id", document_id)
+        )
+
+        if user_id is not None:
+            query = query.eq(
+                "user_id",
+                user_id,
+            )
+
+        response = (
+            query
             .select("*")
             .execute()
         )
 
-        return (
-            response.data[0]
-            if response.data
-            else None
-        )
+        if response.data:
+            return response.data[0]
+
+        return None
 
     def set_favorite(
         self,
         document_id: int,
         value: bool,
-    ) -> dict | None:
-        response = (
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        values = {
+            "is_favorite": value,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+        query = (
             self.client
             .table(self.table)
-            .update({
-                "is_favorite": value,
-                "updated_at": datetime.utcnow().isoformat(),
-            })
+            .update(values)
             .eq("id", document_id)
+        )
+
+        if user_id is not None:
+            query = query.eq(
+                "user_id",
+                user_id,
+            )
+
+        response = (
+            query
             .select("*")
             .execute()
         )
 
-        return (
-            response.data[0]
-            if response.data
-            else None
-        )
+        if response.data:
+            return response.data[0]
+
+        return None
 
     def delete(
         self,
         document_id: int,
-    ) -> dict | None:
-        document = self.get(document_id)
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        document = self.get(
+            document_id,
+            user_id=user_id,
+        )
 
         if not document:
             return None
 
-        (
+        query = (
             self.client
             .table(self.table)
             .delete()
             .eq("id", document_id)
-            .execute()
         )
+
+        if user_id is not None:
+            query = query.eq(
+                "user_id",
+                user_id,
+            )
+
+        query.execute()
 
         return document

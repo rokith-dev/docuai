@@ -16,20 +16,35 @@ class DocumentRepository:
         title: str,
         description: str,
         content: str,
+        user_id: str | None = None,
     ) -> Document:
-        response = (
-            self.client
-            .table(self.table)
-            .insert(
-                {
-                    "title": title,
-                    "description": description,
-                    "content": content,
-                    "status": "completed",
-                }
+        payload = {
+            "title": title,
+            "description": description,
+            "content": content,
+            "status": "completed",
+        }
+        if user_id is not None:
+            payload["user_id"] = user_id
+
+        try:
+            response = (
+                self.client
+                .table(self.table)
+                .insert(payload)
+                .execute()
             )
-            .execute()
-        )
+        except Exception:
+            if "user_id" in payload:
+                payload.pop("user_id")
+                response = (
+                    self.client
+                    .table(self.table)
+                    .insert(payload)
+                    .execute()
+                )
+            else:
+                raise
 
         if not response.data:
             raise RuntimeError("Failed to create document.")

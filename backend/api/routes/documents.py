@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from backend.ai.gemini import GeminiService
 from backend.api.dependencies import get_gemini_service
+from backend.api.dependencies import get_current_user
 from backend.api.schemas.documents import (
     DocumentGenerationRequest,
     DocumentGenerationResponse,
@@ -29,8 +30,8 @@ class ManagedDocumentUpdate(BaseModel):
 
 
 @router.get("")
-def get_documents(project_id: int | None = None):
-    documents = ManagedDocumentRepository().list(project_id=project_id)
+def get_documents(project_id: int | None = None, user: dict = Depends(get_current_user)):
+    documents = ManagedDocumentRepository().list(project_id=project_id, user_id=user["id"])
 
     return {
         "status": "success",
@@ -44,11 +45,12 @@ def save_document(
     template_name: str,
     file_path: str,
     project_id: int | None = None,
+    user: dict = Depends(get_current_user),
 ):
     try:
         resolve_generated_file(file_path)
         document = ManagedDocumentRepository().create(
-            document_name, template_name, file_path, project_id
+            document_name, template_name, file_path, content="", project_id=project_id, user_id=user["id"]
         )
         return {"status": "success", "document": document}
     except FileNotFoundError as error:
@@ -58,17 +60,17 @@ def save_document(
 
 
 @router.get("/{document_id}")
-def get_managed_document(document_id: int):
-    document = ManagedDocumentRepository().get(document_id)
+def get_managed_document(document_id: int, user: dict = Depends(get_current_user)):
+    document = ManagedDocumentRepository().get(document_id, user_id=user["id"])
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"status": "success", "document": document}
 
 
 @router.put("/{document_id}")
-def update_managed_document(document_id: int, request: ManagedDocumentUpdate):
+def update_managed_document(document_id: int, request: ManagedDocumentUpdate, user: dict = Depends(get_current_user)):
     document = ManagedDocumentRepository().update(
-        document_id, request.project_id, request.document_name
+        document_id, request.project_id, request.document_name, user_id=user["id"]
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -76,8 +78,8 @@ def update_managed_document(document_id: int, request: ManagedDocumentUpdate):
 
 
 @router.get("/{document_id}/download")
-def download_managed_document(document_id: int):
-    document = ManagedDocumentRepository().get(document_id)
+def download_managed_document(document_id: int, user: dict = Depends(get_current_user)):
+    document = ManagedDocumentRepository().get(document_id, user_id=user["id"])
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     try:
@@ -88,8 +90,8 @@ def download_managed_document(document_id: int):
 
 
 @router.delete("/{document_id}")
-def delete_managed_document(document_id: int):
-    document = ManagedDocumentRepository().delete(document_id)
+def delete_managed_document(document_id: int, user: dict = Depends(get_current_user)):
+    document = ManagedDocumentRepository().delete(document_id, user_id=user["id"])
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     try:
@@ -100,16 +102,16 @@ def delete_managed_document(document_id: int):
 
 
 @router.post("/{document_id}/favorite")
-def favorite_managed_document(document_id: int):
-    document = ManagedDocumentRepository().set_favorite(document_id, True)
+def favorite_managed_document(document_id: int, user: dict = Depends(get_current_user)):
+    document = ManagedDocumentRepository().set_favorite(document_id, True, user_id=user["id"])
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"status": "success", "document": document}
 
 
 @router.delete("/{document_id}/favorite")
-def unfavorite_managed_document(document_id: int):
-    document = ManagedDocumentRepository().set_favorite(document_id, False)
+def unfavorite_managed_document(document_id: int, user: dict = Depends(get_current_user)):
+    document = ManagedDocumentRepository().set_favorite(document_id, False, user_id=user["id"])
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"status": "success", "document": document}
@@ -162,6 +164,7 @@ Return clear, well-structured content suitable for a professional document.
             title=request.title,
             description=request.description,
             content=generated_content,
+            user_id=user["id"],
         )
 
     except Exception as error:

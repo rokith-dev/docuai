@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import AppShell from "../../components/layout/AppShell";
-import { API_BASE_URL } from "../../lib/api";
+import { API_BASE_URL, apiFetch } from "../../lib/api";
 
 interface Project { id: number; name: string; description?: string; document_count?: number; }
 
@@ -13,7 +13,7 @@ export default function ProjectsPage() {
 	const [error, setError] = useState("");
 
 	async function load() {
-		const response = await fetch(`${API_BASE_URL}/api/projects`);
+		const response = await apiFetch("/api/projects");
 		const data = await response.json();
 		if (!response.ok) throw new Error(data.detail || "Failed to load projects.");
 		setProjects(data.projects ?? []);
@@ -22,13 +22,13 @@ export default function ProjectsPage() {
 
 	async function create(event: FormEvent) {
 		event.preventDefault();
-		const response = await fetch(`${API_BASE_URL}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description }) });
+		const response = await apiFetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description }) });
 		if (!response.ok) { setError("Failed to create project."); return; }
 		setName(""); setDescription(""); await load();
 	}
 
 	async function remove(id: number) {
-		const response = await fetch(`${API_BASE_URL}/api/projects/${id}`, { method: "DELETE" });
+		const response = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
 		if (!response.ok) { const data = await response.json(); setError(data.detail || "Failed to delete project."); return; }
 		await load();
 	}

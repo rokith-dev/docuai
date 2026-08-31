@@ -1,1532 +1,906 @@
 "use client";
 
-import {
-  ChangeEvent,
-  useEffect,
-  useState,
-} from "react";
-import { redirect } from "next/navigation";
-
-
-// ==================================================
-// TYPES
-// ==================================================
-
-interface TemplateField {
-  name: string;
-  label: string;
-  standard?: boolean;
-  content_type?: string;
-  location?: {
-    source?: string;
-    heading_index?: number;
-    content_index?: number;
-  };
-  instruction?: string;
-}
-
-interface TableField {
-  name: string;
-  label: string;
-  standard?: boolean;
-  kind?: string;
-  label_location?: {
-    table_index?: number;
-    row?: number;
-    column?: number;
-  };
-  value_location?: {
-    table_index?: number;
-    row?: number;
-    column?: number;
-  };
-  current_value?: string;
-  placeholder?: boolean;
-}
-
-interface TemplateAnalysis {
-  status: string;
-  file_name: string;
-  fields: TemplateField[];
-  table_fields: TableField[];
-}
-
-interface UserContent {
-  [key: string]: string;
-}
-
-interface Project {
-  id: number;
-  name: string;
-}
-
-
-// ==================================================
-// PAGE
-// ==================================================
-
-export default function CreatePage() {
-
-  redirect("/dashboard");
-
-  // ==================================================
-  // STATE
-  // ==================================================
-
-  const [file, setFile] =
-    useState<File | null>(null);
-
-  const [result, setResult] =
-    useState<TemplateAnalysis | null>(null);
-
-  const [content, setContent] =
-    useState<UserContent>({});
-
-  const [outputImage, setOutputImage] =
-    useState<File | null>(null);
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [aiLoading, setAiLoading] =
-    useState(false);
-
-  const [topic, setTopic] =
-    useState("");
-
-  const [documentName, setDocumentName] =
-    useState("");
-
-  const [projectId, setProjectId] =
-    useState("");
-
-  const [projects, setProjects] =
-    useState<Project[]>([]);
-
-  const [error, setError] =
-    useState("");
-
-  const [success, setSuccess] =
-    useState("");
-
-
-  // ==================================================
-  // FILE CHANGE
-  // ==================================================
-
-  function handleFileChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-
-    const selectedFile =
-      event.target.files?.[0] ?? null;
-
-    setFile(selectedFile);
-
-    setResult(null);
-    setContent({});
-    setOutputImage(null);
-    setTopic("");
-    setDocumentName("");
-    setProjectId("");
-    setError("");
-    setSuccess("");
-  }
-
-  useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/projects")
-      .then((response) => response.json())
-      .then((data) => setProjects(data.projects ?? []))
-      .catch(() => setProjects([]));
-  }, [result]);
-
-
-  // ==================================================
-  // GENERATE AI CONTENT
-  // ==================================================
-
-  async function generateAIContent() {
-
-    if (!result) {
-      setError("Please analyze the template first.");
-      return;
-    }
-
-    if (!topic.trim()) {
-      setError("Please enter an experiment or document topic.");
-      return;
-    }
-
-    setAiLoading(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      const response = await fetch(
-        "http://127.0.0.1:8000/api/ai/generate-content",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            topic: topic.trim(),
-            fields: result.fields,
-          }),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || "AI content generation failed.",
-        );
-      }
-
-      if (!data.content || typeof data.content !== "object") {
-        throw new Error("The AI returned an invalid content response.");
-      }
-
-      setContent((previous) => ({
-        ...previous,
-        ...data.content,
-      }));
-      setSuccess("AI content generated. Review and edit it before generating the document.");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate AI content.",
-      );
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-
-  // ==================================================
-  // ANALYZE TEMPLATE
-  // ==================================================
-
-  async function analyzeTemplate() {
-
-    if (!file) {
-
-      setError(
-        "Please select a DOCX template first.",
-      );
-
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setSuccess("");
-    setResult(null);
-    setContent({});
-    setOutputImage(null);
-
-    try {
-
-      const formData =
-        new FormData();
-
-      formData.append(
-        "file",
-        file,
-      );
-
-      const response =
-        await fetch(
-          "http://127.0.0.1:8000/api/templates/analyze",
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-
-        throw new Error(
-          data.detail ||
-            "Template analysis failed.",
-        );
-      }
-
-      setResult(data);
-
-
-      // ==================================================
-      // INITIALIZE DETECTED FIELDS
-      // ==================================================
-
-      const initialContent:
-        UserContent = {};
-
-
-      // Document fields
-
-      for (
-        const field of
-          data.fields ?? []
-      ) {
-
-        initialContent[
-          field.name
-        ] = "";
-      }
-
-
-      // Table fields
-
-      for (
-        const field of
-          data.table_fields ?? []
-      ) {
-
-        if (
-          field.current_value &&
-          !field.placeholder
-        ) {
-
-          initialContent[
-            field.name
-          ] =
-            field.current_value;
-
-        } else {
-
-          initialContent[
-            field.name
-          ] = "";
-        }
-      }
-
-
-      setContent(
-        initialContent,
-      );
-
-      setSuccess(
-        "Template analyzed successfully.",
-      );
-
-    } catch (err) {
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to analyze the template.",
-      );
-
-    } finally {
-
-      setLoading(false);
-    }
-  }
-
-
-  // ==================================================
-  // UPDATE FIELD
-  // ==================================================
-
-  function updateContent(
-    fieldName: string,
-    value: string,
-  ) {
-
-    setContent(
-      (previous) => ({
-        ...previous,
-        [fieldName]:
-          value,
-      }),
-    );
-  }
-
-
-  // ==================================================
-  // OUTPUT IMAGE
-  // ==================================================
-
-  function handleOutputImageChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-
-    const image =
-      event.target.files?.[0] ??
-      null;
-
-    setOutputImage(
-      image,
-    );
-
-    setError("");
-    setSuccess("");
-  }
-
-
-  // ==================================================
-  // DOCUMENT FIELD INPUT
-  // ==================================================
-
-  function renderInput(
-    field: TemplateField,
-  ) {
-
-    const value =
-      content[field.name] ??
-      "";
-
-    const contentType =
-      field.content_type ??
-      "text";
-
-
-    // ==================================================
-    // CODE
-    // ==================================================
-
-    if (
-      contentType === "code"
-    ) {
-
-      return (
-        <textarea
-          value={value}
-          onChange={(event) =>
-            updateContent(
-              field.name,
-              event.target.value,
-            )
-          }
-          placeholder={
-            `Enter ${field.label}`
-          }
-          rows={16}
-          spellCheck={false}
-          className="
-            w-full
-            rounded-xl
-            border
-            border-gray-300
-            bg-gray-950
-            p-4
-            font-mono
-            text-sm
-            leading-6
-            text-white
-            outline-none
-            focus:border-black
-            focus:ring-1
-            focus:ring-black
-          "
-        />
-      );
-    }
-
-
-    // ==================================================
-    // IMAGE
-    // ==================================================
-
-    if (
-      contentType === "image"
-    ) {
-
-      return (
-        <div>
-
-          <input
-            type="file"
-            accept="
-              image/png,
-              image/jpeg,
-              image/webp
-            "
-            onChange={
-              handleOutputImageChange
-            }
-            className="
-              block
-              w-full
-              rounded-xl
-              border
-              border-gray-300
-              bg-white
-              p-3
-              text-sm
-              text-gray-700
-            "
-          />
-
-          {outputImage && (
-
-            <div
-              className="
-                mt-3
-                rounded-xl
-                bg-gray-50
-                p-4
-              "
-            >
-
-              <p
-                className="
-                  text-sm
-                  text-gray-500
-                "
-              >
-                Selected image
-              </p>
-
-              <p
-                className="
-                  mt-1
-                  font-medium
-                  text-gray-900
-                "
-              >
-                {outputImage.name}
-              </p>
-
-            </div>
-          )}
-
-        </div>
-      );
-    }
-
-
-    // ==================================================
-    // NORMAL TEXT
-    // ==================================================
-
-    return (
-      <textarea
-        value={value}
-        onChange={(event) =>
-          updateContent(
-            field.name,
-            event.target.value,
-          )
-        }
-        placeholder={
-          `Enter ${field.label}`
-        }
-        rows={5}
-        className="
-          w-full
-          rounded-xl
-          border
-          border-gray-300
-          bg-white
-          p-4
-          text-sm
-          text-gray-900
-          outline-none
-          focus:border-black
-          focus:ring-1
-          focus:ring-black
-        "
-      />
-    );
-  }
-
-
-  // ==================================================
-  // TABLE FIELD INPUT
-  // ==================================================
-
-  function renderTableInput(
-    field: TableField,
-  ) {
-
-    const value =
-      content[field.name] ??
-      "";
-
-    const name =
-      field.name.toLowerCase();
-
-    const label =
-      field.label.toLowerCase();
-
-
-    // ==================================================
-    // EXISTING VALUE
-    // ==================================================
-
-    if (
-      field.kind === "existing_value"
-    ) {
-
-      return (
-        <input
-          type="text"
-          value={value}
-          readOnly
-          className="
-            w-full
-            rounded-xl
-            border
-            border-gray-200
-            bg-gray-100
-            p-4
-            text-sm
-            font-medium
-            text-gray-600
-            outline-none
-          "
-        />
-      );
-    }
-
-
-    // ==================================================
-    // TITLE
-    // ==================================================
-
-    if (
-      name.includes("title") ||
-      label.includes("title")
-    ) {
-
-      return (
-        <input
-          type="text"
-          value={value}
-          onChange={(event) =>
-            updateContent(
-              field.name,
-              event.target.value,
-            )
-          }
-          placeholder="Enter title of the exercise"
-          className="
-            w-full
-            rounded-xl
-            border
-            border-gray-300
-            bg-white
-            p-4
-            text-sm
-            font-medium
-            text-gray-900
-            outline-none
-            focus:border-black
-            focus:ring-1
-            focus:ring-black
-          "
-        />
-      );
-    }
-
-
-    // ==================================================
-    // YOUTUBE LINK
-    // ==================================================
-
-    if (
-      name.includes("youtube") ||
-      name.includes("url") ||
-      label.includes("youtube") ||
-      label.includes("link")
-    ) {
-
-      return (
-        <input
-          type="url"
-          value={value}
-          onChange={(event) =>
-            updateContent(
-              field.name,
-              event.target.value,
-            )
-          }
-          placeholder="https://youtube.com/..."
-          className="
-            w-full
-            rounded-xl
-            border
-            border-gray-300
-            bg-white
-            p-4
-            text-sm
-            text-gray-900
-            outline-none
-            focus:border-black
-            focus:ring-1
-            focus:ring-black
-          "
-        />
-      );
-    }
-
-
-    // ==================================================
-    // DATE
-    // ==================================================
-
-    if (
-      name.includes("date") ||
-      label.includes("date")
-    ) {
-
-      return (
-        <input
-          type="text"
-          value={value}
-          onChange={(event) =>
-            updateContent(
-              field.name,
-              event.target.value,
-            )
-          }
-          placeholder="DD.MM.YYYY"
-          className="
-            w-full
-            rounded-xl
-            border
-            border-gray-300
-            bg-white
-            p-4
-            text-sm
-            text-gray-900
-            outline-none
-            focus:border-black
-            focus:ring-1
-            focus:ring-black
-          "
-        />
-      );
-    }
-
-
-    // ==================================================
-    // NORMAL TABLE VALUE
-    // ==================================================
-
-    return (
-      <input
-        type="text"
-        value={value}
-        onChange={(event) =>
-          updateContent(
-            field.name,
-            event.target.value,
-          )
-        }
-        placeholder={
-          `Enter ${field.label}`
-        }
-        className="
-          w-full
-          rounded-xl
-          border
-          border-gray-300
-          bg-white
-          p-4
-          text-sm
-          text-gray-900
-          outline-none
-          focus:border-black
-          focus:ring-1
-          focus:ring-black
-        "
-      />
-    );
-  }
-
-
-  // ==================================================
-  // GENERATE DOCUMENT
-  // ==================================================
-
-  async function handleGenerate() {
-
-    if (!file) {
-
-      setError(
-        "Please select a DOCX template first.",
-      );
-
-      return;
-    }
-
-    if (!result) {
-
-      setError(
-        "Please analyze the template first.",
-      );
-
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setSuccess("");
-
-    try {
-
-      // ==================================================
-      // FORM DATA
-      // ==================================================
-
-      const formData =
-        new FormData();
-
-      formData.append(
-        "file",
-        file,
-      );
-
-      formData.append(
-        "content",
-        JSON.stringify(
-          content,
-        ),
-      );
-
-      if (documentName.trim()) {
-        formData.append("document_name", documentName.trim());
-      }
-
-      if (projectId) {
-        formData.append("project_id", projectId);
-      }
-
-
-      // ==================================================
-      // OUTPUT IMAGE
-      // ==================================================
-
-      if (outputImage) {
-
-        formData.append(
-          "output_image",
-          outputImage,
-        );
-      }
-
-
-      // ==================================================
-      // SEND REQUEST
-      // ==================================================
-
-      const response =
-        await fetch(
-          "http://127.0.0.1:8000/api/templates/generate",
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
-
-
-      // ==================================================
-      // HANDLE ERROR
-      // ==================================================
-
-      if (!response.ok) {
-
-        let message =
-          "Document generation failed.";
-
-        try {
-
-          const data =
-            await response.json();
-
-          if (data.detail) {
-
-            message =
-              data.detail;
-          }
-
-        } catch {
-          // Response wasn't JSON.
-        }
-
-        throw new Error(
-          message,
-        );
-      }
-
-
-      // ==================================================
-      // RECEIVE DOCX
-      // ==================================================
-
-      const blob =
-        await response.blob();
-
-
-      // ==================================================
-      // CREATE DOWNLOAD
-      // ==================================================
-
-      const downloadUrl =
-        window.URL.createObjectURL(
-          blob,
-        );
-
-      const link =
-        document.createElement(
-          "a",
-        );
-
-      link.href =
-        downloadUrl;
-
-      link.download =
-        `DocuAI_${file.name.replace(
-          /\.docx$/i,
-          "",
-        )}.docx`;
-
-      document.body.appendChild(
-        link,
-      );
-
-      link.click();
-
-      link.remove();
-
-      window.URL.revokeObjectURL(
-        downloadUrl,
-      );
-
-
-      setSuccess(
-        "Document generated and downloaded successfully.",
-      );
-
-    } catch (err) {
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to generate the document.",
-      );
-
-    } finally {
-
-      setLoading(false);
-    }
-  }
-
-
-  // ==================================================
-  // PAGE
-  // ==================================================
+import Link from "next/link";
+import { useTheme } from "../components/theme/ThemeProvider";
+
+export default function LandingPage() {
+  const { theme, toggleTheme } = useTheme();
 
   return (
-    <main
-      className="
-        min-h-screen
-        bg-gray-50
-        px-6
-        py-10
-      "
-    >
-
-      <div
-        className="
-          mx-auto
-          max-w-5xl
-        "
-      >
-
-        {/* ==================================================
-            HEADER
-        ================================================== */}
-
-        <div className="mb-8">
-
-          <h1
-            className="
-              text-4xl
-              font-bold
-              text-gray-900
-            "
-          >
-            DocuAI
-          </h1>
-
-          <p
-            className="
-              mt-2
-              text-gray-600
-            "
-          >
-            AI-powered intelligent document
-            generation.
-          </p>
-
-        </div>
-
-
-        {/* ==================================================
-            UPLOAD TEMPLATE
-        ================================================== */}
-
-        <section
-          className="
-            rounded-2xl
-            border
-            border-gray-200
-            bg-white
-            p-8
-            shadow-sm
-          "
-        >
-
-          <h2
-            className="
-              text-2xl
-              font-semibold
-              text-gray-900
-            "
-          >
-            Upload Template
-          </h2>
-
-          <p
-            className="
-              mt-2
-              text-sm
-              text-gray-500
-            "
-          >
-            Upload a DOCX template and DocuAI
-            will automatically detect its fields.
-          </p>
-
-
-          {/* FILE */}
-
-          <div className="mt-6">
-
-            <label
-              htmlFor="template-file"
-              className="
-                mb-2
-                block
-                text-sm
-                font-medium
-                text-gray-700
-              "
-            >
-              Template File
-            </label>
-
-            <input
-              id="template-file"
-              type="file"
-              accept=".docx"
-              onChange={
-                handleFileChange
-              }
-              className="
-                block
-                w-full
-                cursor-pointer
-                rounded-xl
-                border
-                border-gray-300
-                bg-white
-                p-3
-                text-sm
-              "
-            />
-
-          </div>
-
-
-          {/* SELECTED FILE */}
-
-          {file && (
-
-            <div
-              className="
-                mt-4
-                rounded-xl
-                bg-gray-50
-                p-4
-              "
-            >
-
-              <p
-                className="
-                  text-sm
-                  text-gray-500
-                "
-              >
-                Selected file
-              </p>
-
-              <p
-                className="
-                  mt-1
-                  font-medium
-                  text-gray-900
-                "
-              >
-                {file.name}
-              </p>
-
-            </div>
-          )}
-
-
-          {/* ERROR */}
-
-          {error && (
-
-            <div
-              className="
-                mt-4
-                rounded-xl
-                border
-                border-red-200
-                bg-red-50
-                p-4
-              "
-            >
-
-              <p
-                className="
-                  text-sm
-                  text-red-700
-                "
-              >
-                {error}
-              </p>
-
-            </div>
-          )}
-
-
-          {/* SUCCESS */}
-
-          {success && (
-
-            <div
-              className="
-                mt-4
-                rounded-xl
-                border
-                border-green-200
-                bg-green-50
-                p-4
-              "
-            >
-
-              <p
-                className="
-                  text-sm
-                  text-green-700
-                "
-              >
-                {success}
-              </p>
-
-            </div>
-          )}
-
-
-          {/* ANALYZE */}
-
-          <button
-            type="button"
-            onClick={
-              analyzeTemplate
-            }
-            disabled={
-              !file ||
-              loading
-            }
-            className="
-              mt-6
-              rounded-xl
-              bg-black
-              px-6
-              py-3
-              font-medium
-              text-white
-              transition
-              hover:bg-gray-800
-              disabled:cursor-not-allowed
-              disabled:opacity-50
-            "
-          >
-            {loading
-              ? "Processing..."
-              : "Analyze Template"}
-          </button>
-
-        </section>
-
-
-        {/* ==================================================
-            DYNAMIC FORM
-        ================================================== */}
-
-        {result && (
-
-          <section
-            className="
-              mt-8
-              rounded-2xl
-              border
-              border-gray-200
-              bg-white
-              p-8
-              shadow-sm
-            "
-          >
-
-            {/* HEADER */}
-
-            <div
-              className="
-                border-b
-                border-gray-200
-                pb-6
-              "
-            >
-
-              <h2
-                className="
-                  text-2xl
-                  font-semibold
-                  text-gray-900
-                "
-              >
-                Document Content
-              </h2>
-
-              <p
-                className="
-                  mt-2
-                  text-sm
-                  text-gray-500
-                "
-              >
-                Fill in the fields detected
-                from your template.
-              </p>
-
-              <p
-                className="
-                  mt-2
-                  text-sm
-                  font-medium
-                  text-gray-800
-                "
-              >
-                {result.file_name}
-              </p>
-
-              <div className="mt-6 border-t border-gray-200 pt-6">
-                <label
-                  htmlFor="document-topic"
-                  className="mb-2 block text-sm font-medium text-gray-800"
-                >
-                  Experiment or Document Topic
-                </label>
-
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <input
-                    id="document-topic"
-                    type="text"
-                    value={topic}
-                    onChange={(event) => setTopic(event.target.value)}
-                    placeholder="e.g. CNN Image Classification"
-                    disabled={aiLoading || loading}
-                    className="w-full rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={generateAIContent}
-                    disabled={aiLoading || loading || !topic.trim()}
-                    className="rounded-xl bg-blue-600 px-6 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {aiLoading ? "Generating AI Content..." : "Generate with AI"}
-                  </button>
-                </div>
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    value={documentName}
-                    onChange={(event) => setDocumentName(event.target.value)}
-                    placeholder="Document name (optional)"
-                    disabled={loading || aiLoading}
-                    className="rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
-                  />
-                  <select
-                    value={projectId}
-                    onChange={(event) => setProjectId(event.target.value)}
-                    disabled={loading || aiLoading}
-                    className="rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-900 outline-none focus:border-black focus:ring-1 focus:ring-black"
-                  >
-                    <option value="">No project</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-            </div>
-
-
-            {/* ==================================================
-                TEMPLATE INFORMATION
-            ================================================== */}
-
-            {result.table_fields &&
-              result.table_fields.length > 0 && (
-
-              <div className="mt-8">
-
-                <h3
-                  className="
-                    text-lg
-                    font-semibold
-                    text-gray-900
-                  "
-                >
-                  Template Information
-                </h3>
-
-                <p
-                  className="
-                    mt-1
-                    text-sm
-                    text-gray-500
-                  "
-                >
-                  Information detected from
-                  the template header table.
-                </p>
-
-                <div
-                  className="
-                    mt-5
-                    space-y-5
-                  "
-                >
-
-                  {result.table_fields.map(
-                    (field, index) => (
-
-                      <div
-                        key={`${field.name}-${field.label}-${index}`}
-                      >
-
-                        <label
-                          className="
-                            mb-2
-                            block
-                            text-sm
-                            font-medium
-                            text-gray-800
-                          "
-                        >
-                          {field.label}
-                        </label>
-
-                        {renderTableInput(
-                          field,
-                        )}
-
-                      </div>
-
-                    ),
-                  )}
-
-                </div>
-
-              </div>
-            )}
-
-
-            {/* ==================================================
-                DOCUMENT SECTIONS
-            ================================================== */}
-
-            {result.fields &&
-              result.fields.length > 0 && (
-
-              <div className="mt-10">
-
-                <h3
-                  className="
-                    text-lg
-                    font-semibold
-                    text-gray-900
-                  "
-                >
-                  Document Sections
-                </h3>
-
-                <p
-                  className="
-                    mt-1
-                    text-sm
-                    text-gray-500
-                  "
-                >
-                  Complete each section detected
-                  from your DOCX template.
-                </p>
-
-                <div
-                  className="
-                    mt-5
-                    space-y-8
-                  "
-                >
-
-                  {result.fields.map(
-                    (field, index) => (
-
-                      <div
-                        key={`${field.name}-${index}`}
-                      >
-
-                        <label
-                          className="
-                            mb-2
-                            block
-                            text-sm
-                            font-medium
-                            text-gray-800
-                          "
-                        >
-                          {field.label}
-                        </label>
-
-
-                        {/* FIELD TYPE */}
-
-                        {renderInput(
-                          field,
-                        )}
-
-
-                        {/* INSTRUCTION */}
-
-                        {field.instruction && (
-
-                          <div
-                            className="
-                              mt-2
-                              rounded-lg
-                              bg-gray-50
-                              p-3
-                            "
-                          >
-
-                            <p
-                              className="
-                                text-xs
-                                font-medium
-                                text-gray-500
-                              "
-                            >
-                              Template Instruction
-                            </p>
-
-                            <p
-                              className="
-                                mt-1
-                                text-xs
-                                leading-5
-                                text-gray-600
-                              "
-                            >
-                              {
-                                field.instruction
-                              }
-                            </p>
-
-                          </div>
-                        )}
-
-                      </div>
-
-                    ),
-                  )}
-
-                </div>
-
-              </div>
-            )}
-
-
-            {/* ==================================================
-                GENERATE BUTTON
-            ================================================== */}
-
-            <div
-              className="
-                mt-10
-                flex
-                justify-end
-                border-t
-                border-gray-200
-                pt-6
-              "
-            >
-
-              <button
-                type="button"
-                onClick={
-                  handleGenerate
-                }
-                disabled={
-                  !file ||
-                  loading ||
-                  aiLoading
-                }
-                className="
-                  rounded-xl
-                  bg-black
-                  px-8
-                  py-3
-                  font-medium
-                  text-white
-                  transition
-                  hover:bg-gray-800
-                  disabled:cursor-not-allowed
-                  disabled:opacity-50
-                "
-              >
-
-                {loading
-                  ? "Generating Document..."
-                  : "Generate Document"}
-
-              </button>
-
-            </div>
-
-          </section>
-        )}
-
+    <main className={`landing-container ${theme}`}>
+      {/* Subtle Animated Background Elements */}
+      <div className="bg-decorations" aria-hidden="true">
+        <div className="ambient-glow purple-glow"></div>
+        <div className="ambient-glow blue-glow"></div>
+        <div className="ambient-glow orange-glow"></div>
+        <div className="grid-overlay"></div>
       </div>
 
+      {/* Main Header */}
+      <header className="landing-header">
+        <Link href="/" className="logo-link">
+          <span className="brand-mark">D</span>
+          <span className="logo-text">DocuAI</span>
+        </Link>
+        <div className="nav-actions">
+          <button onClick={toggleTheme} className="theme-toggle-btn" aria-label="Toggle theme">
+            {theme === "light" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m12.7 12.7l1.4 1.4M2 12h2m16 0h2M6.3 17.7l-1.4 1.4m15.8-15.8l-1.4 1.4"/></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            )}
+          </button>
+          <Link href="/login" className="btn-signin">Sign In</Link>
+          <Link href="/signup" className="btn-signup">Sign Up</Link>
+        </div>
+      </header>
+
+      {/* Hero Section Container */}
+      <section className="hero-wrapper">
+        <div className="hero-left">
+          <div className="eyebrow-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sparkle-svg"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
+            <span>Intelligent Document Workspace</span>
+          </div>
+          <h1 className="hero-title">
+            Turn your ideas into <span className="grad">finished documents.</span>
+          </h1>
+          <p className="hero-desc">
+            DocuAI brings your templates, structured content, and powerful LLMs together in one focused environment. Draft, analyze, and format in seconds.
+          </p>
+          <div className="hero-actions">
+            <Link href="/signup" className="primary-action-btn">
+              <span>Get Started</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </Link>
+            <Link href="/login" className="secondary-action-btn">
+              Sign In
+            </Link>
+          </div>
+          <div className="hero-features">
+            <div className="feature-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+              <span>Instant DOCX analysis</span>
+            </div>
+            <div className="feature-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+              <span>AI generation & filling</span>
+            </div>
+            <div className="feature-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+              <span>Structured templates</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="hero-right" aria-hidden="true">
+          <div className="visual-3d-scene">
+            {/* Sparkles */}
+            <span className="spark-sparkle s1" style={{ animationDelay: "0s" }}>✦</span>
+            <span className="spark-sparkle s2" style={{ animationDelay: "0.4s" }}>✦</span>
+            <span className="spark-sparkle s3" style={{ animationDelay: "0.8s" }}>✦</span>
+
+            {/* Base sheet: represents document builder */}
+            <div className="card-layer base-sheet">
+              <div className="sheet-header">
+                <span className="dot rgb-r"></span>
+                <span className="dot rgb-y"></span>
+                <span className="dot rgb-g"></span>
+                <span className="sheet-badge">DOCUAI WRITER</span>
+              </div>
+              <div className="sheet-content">
+                <div className="sheet-line-mockup w-90 purple"></div>
+                <div className="sheet-line-mockup w-60"></div>
+                <div className="sheet-line-mockup w-80"></div>
+                <div className="sheet-line-mockup w-40"></div>
+                <div className="divider-line"></div>
+                <div className="sheet-section-block">
+                  <span className="num">01</span>
+                  <div className="text-col">
+                    <div className="sheet-line-mockup w-90"></div>
+                    <div className="sheet-line-mockup w-60"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Middle card: represents DOCX document object */}
+            <div className={`card-layer doc-detail ${theme === "light" ? "light-mode-adjust" : ""}`}>
+              <div className="card-details">
+                <div className="doc-icon">W</div>
+                <div>
+                  <div className="card-lbl">PROJECT SUMMARY</div>
+                  <strong className="card-name">Research Pitch.docx</strong>
+                  <div className="card-bytes">184 KB • Saved</div>
+                </div>
+              </div>
+              <div className="card-lines">
+                <div className="line-bar percent-100"></div>
+                <div className="line-bar percent-60"></div>
+              </div>
+            </div>
+
+            {/* Top-most element: AI prompt widget */}
+            <div className="card-layer ai-status">
+              <div className="ai-badge">AI</div>
+              <div className="ai-meta">
+                <strong className="ai-title">Generating content...</strong>
+                <span className="ai-sub">Structuring research aim...</span>
+              </div>
+              <div className="loader-bars">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Social Proof */}
+      <footer className="landing-proof-banner">
+        <span>Empowering researchers and creators</span>
+        <div className="proof-logos">
+          <strong>Research</strong>
+          <strong>Experiments</strong>
+          <strong>Projects</strong>
+          <strong>Reports</strong>
+        </div>
+      </footer>
+
+      <style jsx>{`
+        .landing-container {
+          min-height: 100vh;
+          position: relative;
+          overflow-x: hidden;
+          font-family: inherit;
+          transition: background-color 0.4s ease, color 0.4s ease;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+
+        /* Default Premium Dark Mode theme */
+        .landing-container.dark {
+          background-color: #0b0e14;
+          color: #f1f3f9;
+        }
+
+        /* Light Mode theme */
+        .landing-container.light {
+          background-color: #f6f8fb;
+          color: #1e293b;
+        }
+
+        /* Ambient glows behind landing details */
+        .bg-decorations {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 1;
+          overflow: hidden;
+        }
+        .ambient-glow {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(100px);
+          opacity: 0.15;
+          animation: pulseGlow 15s ease-in-out infinite alternate;
+        }
+        .dark .ambient-glow {
+          opacity: 0.22;
+        }
+        .purple-glow {
+          width: 450px;
+          height: 450px;
+          background: #7056df;
+          top: -10%;
+          right: 5%;
+        }
+        .blue-glow {
+          width: 380px;
+          height: 380px;
+          background: #3b82f6;
+          bottom: 10%;
+          left: -5%;
+          animation-delay: -5s;
+        }
+        .orange-glow {
+          width: 250px;
+          height: 250px;
+          background: #f97316;
+          top: 40%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          opacity: 0.04;
+          animation-delay: -10s;
+        }
+        .grid-overlay {
+          position: absolute;
+          inset: 0;
+          opacity: 0.25;
+        }
+        .dark .grid-overlay {
+          background-image: radial-gradient(rgba(154, 133, 245, 0.15) 1px, transparent 1px);
+          background-size: 24px 24px;
+        }
+        .light .grid-overlay {
+          background-image: radial-gradient(rgba(112, 86, 223, 0.08) 1px, transparent 1px);
+          background-size: 24px 24px;
+        }
+
+        @keyframes pulseGlow {
+          0% { transform: scale(1) translate(0px, 0px); }
+          100% { transform: scale(1.15) translate(20px, -20px); }
+        }
+
+        /* Header Layout */
+        .landing-header {
+          position: relative;
+          z-index: 10;
+          width: 100%;
+          max-width: 1240px;
+          margin: 0 auto;
+          padding: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .logo-link {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          text-decoration: none;
+          font-weight: 850;
+          font-size: 20px;
+          color: inherit;
+          transition: transform 0.2s ease;
+        }
+        .logo-link:hover {
+          transform: scale(1.02);
+        }
+        .brand-mark {
+          display: grid;
+          place-items: center;
+          width: 30px;
+          height: 30px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #7056df 0%, #5a3ec8 100%);
+          color: #fff;
+          font-size: 14px;
+          font-weight: 900;
+          box-shadow: 0 4px 10px rgba(112, 86, 223, 0.4);
+        }
+        .dark .brand-mark {
+          background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+          box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);
+        }
+        .logo-text {
+          letter-spacing: -0.03em;
+        }
+
+        .nav-actions {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+        }
+        .theme-toggle-btn {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 50%;
+          width: 38px;
+          height: 38px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          color: inherit;
+          transition: all 0.2s ease;
+        }
+        .light .theme-toggle-btn {
+          background: rgba(0, 0, 0, 0.03);
+          border-color: rgba(0, 0, 0, 0.06);
+        }
+        .theme-toggle-btn:hover {
+          background: rgba(112, 86, 223, 0.1);
+          border-color: rgba(112, 86, 223, 0.2);
+          transform: scale(1.05);
+        }
+        .btn-signin {
+          font-size: 13.5px;
+          font-weight: 600;
+          color: inherit;
+          text-decoration: none;
+          transition: opacity 0.2s;
+          padding: 8px 12px;
+        }
+        .btn-signin:hover {
+          opacity: 0.85;
+        }
+        .btn-signup {
+          font-size: 13.5px;
+          font-weight: 700;
+          color: #fff !important;
+          text-decoration: none;
+          background: #7056df;
+          padding: 9px 18px;
+          border-radius: 20px;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 12px rgba(112, 86, 223, 0.3);
+        }
+        .dark .btn-signup {
+          background: #9a85f5;
+          box-shadow: 0 4px 12px rgba(154, 133, 245, 0.25);
+        }
+        .btn-signup:hover {
+          transform: translateY(-1.5px);
+          box-shadow: 0 6px 16px rgba(112, 86, 223, 0.4);
+          background: #5a3ec8;
+        }
+        .dark .btn-signup:hover {
+          background: #8167f1;
+        }
+
+        /* Hero Wrapper */
+        .hero-wrapper {
+          position: relative;
+          z-index: 2;
+          width: 100%;
+          max-width: 1240px;
+          margin: auto;
+          padding: 10px 24px 60px;
+          display: grid;
+          grid-template-columns: 1.15fr 0.85fr;
+          gap: 60px;
+          align-items: center;
+        }
+
+        .hero-left {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          text-align: left;
+        }
+        .eyebrow-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          padding: 6px 12px;
+          font-size: 10.5px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          border-radius: 99px;
+          background: rgba(112, 86, 223, 0.08);
+          border: 1px solid rgba(112, 86, 223, 0.15);
+          color: #7056df;
+          margin-bottom: 24px;
+        }
+        .dark .eyebrow-badge {
+          background: rgba(154, 133, 245, 0.08);
+          border-color: rgba(154, 133, 245, 0.18);
+          color: #9a85f5;
+        }
+        .sparkle-svg {
+          color: #f97316;
+          filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.4));
+        }
+
+        .hero-title {
+          font-size: clamp(34px, 4.8vw, 62px);
+          line-height: 1.05;
+          letter-spacing: -0.04em;
+          font-weight: 800;
+          margin-bottom: 20px;
+        }
+        .hero-title span.grad {
+          background: linear-gradient(135deg, #7056df 20%, #9a85f5 55%, #f97316 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        .hero-desc {
+          font-size: clamp(15px, 2vw, 17px);
+          line-height: 1.6;
+          color: #64748b;
+          margin-bottom: 36px;
+          max-width: 540px;
+        }
+        .dark .hero-desc {
+          color: #94a3b8;
+        }
+
+        .hero-actions {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 40px;
+          width: 100%;
+        }
+        .primary-action-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          font-weight: 750;
+          color: #fff !important;
+          text-decoration: none;
+          background: #7056df;
+          padding: 14px 28px;
+          border-radius: 30px;
+          box-shadow: 0 8px 20px rgba(112, 86, 223, 0.3);
+          transition: all 0.3s ease;
+        }
+        .dark .primary-action-btn {
+          background: #9a85f5;
+          box-shadow: 0 8px 20px rgba(154, 133, 245, 0.3);
+        }
+        .primary-action-btn:hover {
+          transform: translateY(-2px);
+          background: #5a3ec8;
+          box-shadow: 0 10px 24px rgba(112, 86, 223, 0.45);
+        }
+        .dark .primary-action-btn:hover {
+          background: #8167f1;
+        }
+        .primary-action-btn svg {
+          transition: transform 0.2s ease;
+        }
+        .primary-action-btn:hover svg {
+          transform: translateX(4px);
+        }
+
+        .secondary-action-btn {
+          display: inline-flex;
+          align-items: center;
+          font-size: 14px;
+          font-weight: 650;
+          color: inherit;
+          text-decoration: none;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          background: rgba(0, 0, 0, 0.02);
+          padding: 14px 28px;
+          border-radius: 30px;
+          transition: all 0.2s ease;
+        }
+        .dark .secondary-action-btn {
+          border-color: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.03);
+        }
+        .secondary-action-btn:hover {
+          background: rgba(112, 86, 223, 0.06);
+          border-color: rgba(112, 86, 223, 0.18);
+          transform: translateY(-1px);
+        }
+
+        .hero-features {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+        }
+        .feature-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12.5px;
+          font-weight: 600;
+          color: #64748b;
+        }
+        .dark .feature-item {
+          color: #94a3b8;
+        }
+        .feature-item svg {
+          color: #3b82f6;
+        }
+
+        /* 3D Scene Viewport */
+        .hero-right {
+          position: relative;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 480px;
+        }
+        .visual-3d-scene {
+          position: relative;
+          width: 100%;
+          max-width: 400px;
+          height: 400px;
+          perspective: 1200px;
+          transform-style: preserve-3d;
+        }
+
+        /* Float elements */
+        .card-layer {
+          position: absolute;
+          border-radius: 16px;
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
+          pointer-events: none;
+          transform-style: preserve-3d;
+        }
+        .dark .card-layer {
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Base Page Card */
+        .card-layer.base-sheet {
+          background: #ffffff;
+          border: 1px solid rgba(0, 0, 0, 0.06);
+          color: #0f172a;
+          width: 270px;
+          height: 330px;
+          top: 30px;
+          left: 10px;
+          padding: 20px;
+          transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateZ(0px);
+          z-index: 10;
+          animation: floatBaseCard 6s ease-in-out infinite alternate;
+        }
+        .dark .card-layer.base-sheet {
+          background: #192130;
+          border-color: rgba(255, 255, 255, 0.06);
+          color: #f8fafc;
+        }
+        .sheet-header {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          margin-bottom: 20px;
+        }
+        .dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+        }
+        .rgb-r { background: #ef4444; }
+        .rgb-y { background: #eab308; }
+        .rgb-g { background: #22c55e; }
+        .sheet-badge {
+          margin-left: auto;
+          font-size: 8px;
+          font-weight: 850;
+          color: #7056df;
+          letter-spacing: 0.05em;
+        }
+        .sheet-line-mockup {
+          height: 6px;
+          border-radius: 3px;
+          background: rgba(0, 0, 0, 0.05);
+          margin-bottom: 10px;
+        }
+        .dark .sheet-line-mockup {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .sheet-line-mockup.w-90 { width: 90%; }
+        .sheet-line-mockup.w-80 { width: 80%; }
+        .sheet-line-mockup.w-60 { width: 60%; }
+        .sheet-line-mockup.w-40 { width: 40%; }
+        .sheet-line-mockup.purple {
+          background: rgba(112, 86, 223, 0.15);
+        }
+        .dark .sheet-line-mockup.purple {
+          background: rgba(154, 133, 245, 0.2);
+        }
+        .divider-line {
+          height: 1px;
+          background: rgba(0, 0, 0, 0.06);
+          margin: 15px 0;
+        }
+        .dark .divider-line {
+          background: rgba(255, 255, 255, 0.06);
+        }
+        .sheet-section-block {
+          display: flex;
+          gap: 12px;
+        }
+        .sheet-section-block .num {
+          font-size: 11px;
+          font-weight: 800;
+          color: #ef4444;
+        }
+        .sheet-section-block .text-col {
+          flex: 1;
+        }
+
+        /* Document details card */
+        .card-layer.doc-detail {
+          background: linear-gradient(135deg, #7056df 0%, #5a3ec8 100%);
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          width: 200px;
+          height: 120px;
+          bottom: 60px;
+          right: 20px;
+          padding: 14px;
+          transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateZ(60px);
+          z-index: 20;
+          animation: floatDocCard 5s ease-in-out infinite alternate;
+        }
+        .card-layer.doc-detail.light-mode-adjust {
+          background: linear-gradient(135deg, #9a85f5 0%, #7056df 100%);
+        }
+        .card-details {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          margin-bottom: 14px;
+        }
+        .doc-icon {
+          display: grid;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.15);
+          font-weight: 800;
+          font-size: 14px;
+        }
+        .card-lbl {
+          font-size: 7.5px;
+          font-weight: 800;
+          opacity: 0.8;
+          letter-spacing: 0.05em;
+        }
+        .card-name {
+          display: block;
+          font-size: 12px;
+          font-weight: 700;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .card-bytes {
+          font-size: 8px;
+          opacity: 0.75;
+        }
+        .card-lines {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .line-bar {
+          height: 4px;
+          border-radius: 2px;
+          background: rgba(255, 255, 255, 0.25);
+        }
+        .line-bar.percent-100 { width: 100%; }
+        .line-bar.percent-60 { width: 60%; }
+
+        /* AI Prompt badge */
+        .card-layer.ai-status {
+          background: rgba(15, 23, 42, 0.95);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          color: #fff;
+          width: 210px;
+          height: 70px;
+          top: 50px;
+          right: 10px;
+          padding: 12px;
+          transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateZ(110px);
+          z-index: 30;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          animation: floatAiCard 7s ease-in-out infinite alternate;
+        }
+        .light .card-layer.ai-status {
+          background: rgba(255, 255, 255, 0.9);
+          border-color: rgba(112, 86, 223, 0.12);
+          color: #1e293b;
+          box-shadow: 0 15px 30px rgba(112, 86, 223, 0.12);
+        }
+        .ai-badge {
+          display: grid;
+          place-items: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 6px;
+          background: #f97316;
+          color: #fff;
+          font-size: 10px;
+          font-weight: 850;
+        }
+        .ai-meta {
+          flex: 1;
+        }
+        .ai-title {
+          display: block;
+          font-size: 11px;
+          font-weight: 750;
+        }
+        .ai-sub {
+          display: block;
+          font-size: 8px;
+          color: #94a3b8;
+        }
+        .light .ai-sub {
+          color: #64748b;
+        }
+        .loader-bars {
+          display: flex;
+          align-items: flex-end;
+          gap: 2.5px;
+          height: 12px;
+        }
+        .loader-bars span {
+          width: 2.5px;
+          height: 100%;
+          background: #7056df;
+          border-radius: 1px;
+          animation: barGrow 1s ease-in-out infinite alternate;
+        }
+        .dark .loader-bars span {
+          background: #9a85f5;
+        }
+        .loader-bars span:nth-child(2) {
+          animation-delay: 0.3s;
+        }
+        .loader-bars span:nth-child(3) {
+          animation-delay: 0.6s;
+        }
+
+        /* Star sparkles */
+        .spark-sparkle {
+          position: absolute;
+          color: #f97316;
+          font-size: 18px;
+          filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.6));
+          animation: sparkleAnimation 3s ease-in-out infinite alternate;
+        }
+        .spark-sparkle.s1 { top: 25%; right: 45%; transform: translateZ(90px); }
+        .spark-sparkle.s2 { bottom: 35%; left: 5%; transform: translateZ(60px); animation-delay: 0.7s; }
+        .spark-sparkle.s3 { top: 75%; right: 28%; transform: translateZ(40px); animation-delay: 1.4s; }
+
+        @keyframes sparkleAnimation {
+          0% { opacity: 0.3; transform: scale(0.8) translateZ(80px); }
+          100% { opacity: 1; transform: scale(1.3) translateZ(80px); }
+        }
+
+        @keyframes barGrow {
+          0% { height: 3px; }
+          100% { height: 12px; }
+        }
+
+        /* 3D Animations */
+        @keyframes floatBaseCard {
+          0% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(0px) translateZ(0px); }
+          100% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(-10px) translateZ(0px); }
+        }
+        @keyframes floatDocCard {
+          0% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(0px) translateZ(60px); }
+          100% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(-15px) translateZ(60px); }
+        }
+        @keyframes floatAiCard {
+          0% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(0px) translateZ(110px); }
+          100% { transform: rotateY(-18deg) rotateX(14deg) rotateZ(-5deg) translateY(-8px) translateZ(110px); }
+        }
+
+        /* Social Proof Banner */
+        .landing-proof-banner {
+          border-top: 1px solid rgba(0, 0, 0, 0.05);
+          width: 100%;
+          max-width: 1240px;
+          margin: 0 auto;
+          padding: 30px 24px;
+          text-align: center;
+          position: relative;
+          z-index: 3;
+        }
+        .dark .landing-proof-banner {
+          border-top-color: rgba(255, 255, 255, 0.05);
+        }
+        .landing-proof-banner span {
+          display: block;
+          font-size: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+          color: #94a3b8;
+          letter-spacing: 0.12em;
+          margin-bottom: 16px;
+        }
+        .light .landing-proof-banner span {
+          color: #64748b;
+        }
+        .proof-logos {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 30px 48px;
+        }
+        .proof-logos strong {
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+          color: #64748b;
+        }
+        .dark .proof-logos strong {
+          color: #475569;
+        }
+
+        /* Responsive Layouts */
+        @media (max-width: 1024px) {
+          .hero-wrapper {
+            grid-template-columns: 1fr;
+            gap: 40px;
+            text-align: center;
+            padding-bottom: 40px;
+            margin-top: 20px;
+          }
+          .hero-left {
+            align-items: center;
+            max-width: 600px;
+            margin: 0 auto;
+          }
+          .hero-actions {
+            justify-content: center;
+          }
+          .hero-features {
+            justify-content: center;
+          }
+          .hero-right {
+            height: 380px;
+          }
+          .visual-3d-scene {
+            max-width: 320px;
+            height: 320px;
+          }
+          .card-layer.base-sheet {
+            width: 220px;
+            height: 270px;
+            left: 10px;
+            padding: 16px;
+          }
+          .card-layer.doc-detail {
+            width: 170px;
+            height: 100px;
+            bottom: 50px;
+            right: 15px;
+          }
+          .card-layer.ai-status {
+            width: 170px;
+            height: 60px;
+            top: 40px;
+            right: 5px;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .landing-header {
+            padding: 16px;
+          }
+          .nav-actions {
+            gap: 12px;
+          }
+          .btn-signup {
+            padding: 8px 14px;
+            font-size: 12.5px;
+          }
+          .hero-wrapper {
+            padding: 0 16px 30px;
+          }
+          .hero-title {
+            margin-bottom: 12px;
+          }
+          .hero-actions {
+            flex-direction: column;
+            width: 100%;
+            gap: 12px;
+          }
+          .primary-action-btn, .secondary-action-btn {
+            width: 100%;
+            justify-content: center;
+            padding: 12px 24px;
+          }
+          .visual-3d-scene {
+            transform: scale(0.8);
+          }
+          .proof-logos {
+            gap: 20px 30px;
+          }
+        }
+      `}</style>
     </main>
   );
 }

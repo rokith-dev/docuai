@@ -10,6 +10,7 @@ alter table projects add column if not exists name text;
 alter table projects add column if not exists description text;
 alter table projects add column if not exists created_at timestamptz not null default now();
 alter table projects add column if not exists updated_at timestamptz not null default now();
+alter table projects add column if not exists user_id uuid references auth.users(id) on delete cascade;
 
 alter table documents add column if not exists title text;
 alter table documents add column if not exists description text;
@@ -42,7 +43,31 @@ alter table documents add column if not exists document_name text;
 alter table documents add column if not exists template_name text;
 alter table documents add column if not exists file_path text;
 alter table documents add column if not exists is_favorite boolean not null default false;
+alter table documents add column if not exists user_id uuid references auth.users(id) on delete set null;
 
 create index if not exists documents_project_id_idx on documents(project_id);
 create index if not exists documents_favorite_idx on documents(is_favorite) where is_favorite = true;
 create index if not exists documents_created_at_idx on documents(created_at desc);
+create index if not exists documents_user_id_idx on documents(user_id);
+create index if not exists projects_user_id_idx on projects(user_id);
+
+alter table projects enable row level security;
+alter table documents enable row level security;
+
+drop policy if exists projects_owner_select on projects;
+create policy projects_owner_select on projects for select to authenticated using (user_id = auth.uid());
+drop policy if exists projects_owner_insert on projects;
+create policy projects_owner_insert on projects for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists projects_owner_update on projects;
+create policy projects_owner_update on projects for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists projects_owner_delete on projects;
+create policy projects_owner_delete on projects for delete to authenticated using (user_id = auth.uid());
+
+drop policy if exists documents_owner_select on documents;
+create policy documents_owner_select on documents for select to authenticated using (user_id = auth.uid());
+drop policy if exists documents_owner_insert on documents;
+create policy documents_owner_insert on documents for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists documents_owner_update on documents;
+create policy documents_owner_update on documents for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists documents_owner_delete on documents;
+create policy documents_owner_delete on documents for delete to authenticated using (user_id = auth.uid());
