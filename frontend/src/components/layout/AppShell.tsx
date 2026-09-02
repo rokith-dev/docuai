@@ -7,6 +7,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import ProtectedRoute from "../auth/ProtectedRoute";
 import { useAuth } from "../auth/AuthProvider";
 import { useRouter } from "next/navigation";
+import ProfilePopover from "./ProfilePopover";
 
 const navigation = [
   ["Dashboard", "/dashboard", "□"],
@@ -52,10 +53,10 @@ export default function AppShell({ title, children }: { title: string; children:
           {navigation.map(([label, href, icon]) => <Link key={href} href={href} className={title === label ? "active" : ""} onClick={() => setDrawerOpen(false)}><span>{icon}</span>{label}</Link>)}
         </nav>
         <div className="recent-documents"><p className="nav-label">RECENT DOCUMENTS</p>{recent.map((item) => <Link href="/documents" key={item.id} title={item.document_name || item.title || "Untitled"}>▤ <span>{item.document_name || item.title || "Untitled document"}</span></Link>)}{!recent.length && <small>No documents yet</small>}</div>
-        <div className="sidebar-footer"><Link href="/settings">⚙ Settings</Link><Link href="/help">? Help &amp; Feedback</Link><button className="theme-button" onClick={toggleTheme}>{theme === "light" ? "☼ Light mode" : "◐ Dark mode"}<span className={`switch ${theme === "dark" ? "on" : ""}`}><i /></span></button><button className="profile" onClick={async () => { await signOut(); router.replace("/"); }}>{avatarUrl && !avatarFailed ? <img className="avatar" src={avatarUrl} alt="" onError={() => setAvatarFailed(true)} /> : <span className="avatar">{initials}</span>}<span><b>{profileName}</b><small>{user?.email}</small></span></button></div>
+        <div className="sidebar-footer"><Link href="/settings">⚙ Settings</Link><button className="theme-button" onClick={toggleTheme}>{theme === "light" ? "☼ Light mode" : "◐ Dark mode"}<span className={`switch ${theme === "dark" ? "on" : ""}`}><i /></span></button><ProfilePopover avatarUrl={avatarUrl} profileName={profileName} initials={initials} avatarFailed={avatarFailed} /></div>
         <button className="resize-handle" aria-label="Resize sidebar" onPointerDown={() => { resizing.current = true; }} />
       </aside>
-      <main className="app-main"><header className="app-header"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setDrawerOpen(true)}>☰</button><div className="mobile-brand"><span className="brand-mark">D</span> DocuAI</div><div className="crumb">Workspace <span>/</span> <b>{title}</b></div><div className="header-tools"><button aria-label="Toggle theme" onClick={toggleTheme}>{theme === "light" ? "☼" : "◐"}</button>{avatarUrl && !avatarFailed ? <img className="avatar mini" src={avatarUrl} alt="" onError={() => setAvatarFailed(true)} /> : <span className="avatar mini">{initials}</span>}</div></header><div className="app-content">{children}</div></main>
+      <main className="app-main"><header className="app-header"><button className="mobile-menu" aria-label="Open navigation" onClick={() => setDrawerOpen(true)}>☰</button><div className="mobile-brand"><span className="brand-mark">D</span> DocuAI</div><div className="crumb">Workspace <span>/</span> <b>{title}</b></div><div className="header-tools"><button aria-label="Toggle theme" onClick={toggleTheme}>{theme === "light" ? "☼" : "◐"}</button><div className="header-profile"><ProfilePopover avatarUrl={avatarUrl} profileName={profileName} initials={initials} avatarFailed={avatarFailed} /></div></div></header><div className="app-content">{children}</div></main>
     </div></ProtectedRoute>
   );
 }

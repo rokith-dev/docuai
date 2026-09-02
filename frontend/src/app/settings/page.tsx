@@ -1,10 +1,17 @@
 "use client";
 import AppShell from "../../components/layout/AppShell";
 import { useAuth } from "../../components/auth/AuthProvider";
+import { useRouter } from "next/navigation";
 
 export default function SettingsPage() {
-    const { user } = useAuth();
+    const { user, signOut } = useAuth();
+    const router = useRouter();
     const profileName = user?.user_metadata?.full_name || user?.user_metadata?.name || "Workspace User";
+
+    async function handleLogout() {
+        await signOut();
+        router.replace("/");
+    }
 
     return (
         <AppShell title="Settings">
@@ -17,9 +24,22 @@ export default function SettingsPage() {
             <div className="grid gap-4 md:grid-cols-2">
                 <section className="surface p-6">
                     <h2 className="text-lg font-semibold">Account</h2>
-                    <p className="mt-2 text-sm text-[var(--muted)]">{profileName}</p>
-                    <p className="text-sm text-[var(--muted)]">{user?.email || "workspace@docuai.local"}</p>
-                    <button className="primary-button mt-5" type="button">Edit Profile</button>
+                    <div className="mt-5 space-y-3">
+                        <div>
+                            <p className="text-sm font-medium text-[var(--muted)]">Name</p>
+                            <p className="mt-1 text-sm text-[var(--text)]">{profileName}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm font-medium text-[var(--muted)]">Email</p>
+                            <p className="mt-1 text-sm text-[var(--text)]">{user?.email || "workspace@docuai.local"}</p>
+                        </div>
+                        <button 
+                            className="mt-5 rounded-lg border border-red-600/30 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-600/10"
+                            onClick={handleLogout}
+                        >
+                            Logout
+                        </button>
+                    </div>
                 </section>
                 <section className="surface p-6">
                     <h2 className="text-lg font-semibold">Appearance</h2>

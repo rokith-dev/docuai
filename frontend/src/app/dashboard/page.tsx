@@ -165,8 +165,8 @@ export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
-  const [outputImage, setOutputImage] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState("");
+  const [outputImages, setOutputImages] = useState<File[]>([]);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
 
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [tableFields, setTableFields] = useState<TableField[]>([]);
@@ -197,14 +197,14 @@ export default function DashboardPage() {
       URL.revokeObjectURL(resultUrl);
     }
 
-    if (imageUrl) {
-      URL.revokeObjectURL(imageUrl);
-    }
+    imageUrls.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
 
     setPrompt("");
     setFile(null);
-    setOutputImage(null);
-    setImageUrl("");
+    setOutputImages([]);
+    setImageUrls([]);
 
     setFields([]);
     setTableFields([]);
@@ -278,19 +278,23 @@ export default function DashboardPage() {
     setPhase("idle");
   }
 
-  function chooseImage(event: ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0] ?? null;
+  function chooseImages(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
 
-    if (!selected) {
+    if (selectedFiles.length === 0) {
       return;
     }
 
-    if (imageUrl) {
-      URL.revokeObjectURL(imageUrl);
-    }
+    imageUrls.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
 
-    setOutputImage(selected);
-    setImageUrl(URL.createObjectURL(selected));
+    const newUrls = selectedFiles.map((file) =>
+      URL.createObjectURL(file)
+    );
+
+    setOutputImages(selectedFiles);
+    setImageUrls(newUrls);
     setError("");
   }
 
@@ -470,9 +474,9 @@ export default function DashboardPage() {
       body.append("file", file);
       body.append("content", JSON.stringify(content));
 
-      if (outputImage) {
-        body.append("output_image", outputImage);
-      }
+      outputImages.forEach((image, index) => {
+        body.append(`output_image_${index}`, image);
+      });
 
       const response = await apiFetch(
         "/api/templates/generate",
@@ -1177,41 +1181,50 @@ export default function DashboardPage() {
                             />
                           </button>
 
-                          {outputImage && (
-                            <span className="attachment-chip">
-
-                              <img
-                                src={imageUrl}
-                                alt=""
-                              />
-
-                              {outputImage.name}
-
-                              <button
-                                type="button"
-                                aria-label="Remove screenshot"
-                                onClick={() => {
-                                  if (
-                                    imageUrl
-                                  ) {
-                                    URL.revokeObjectURL(
-                                      imageUrl
-                                    );
-                                  }
-
-                                  setOutputImage(
-                                    null
-                                  );
-
-                                  setImageUrl(
-                                    ""
-                                  );
-                                }}
+                          {outputImages.map(
+                            (image, index) => (
+                              <span
+                                key={index}
+                                className="attachment-chip"
                               >
-                                ×
-                              </button>
+                                <img
+                                  src={imageUrls[index]}
+                                  alt=""
+                                />
 
-                            </span>
+                                {image.name}
+
+                                <button
+                                  type="button"
+                                  aria-label="Remove screenshot"
+                                  onClick={() => {
+                                    URL.revokeObjectURL(
+                                      imageUrls[index]
+                                    );
+
+                                    setOutputImages(
+                                      outputImages.filter(
+                                        (
+                                          _,
+                                          i
+                                        ) => i !== index
+                                      )
+                                    );
+
+                                    setImageUrls(
+                                      imageUrls.filter(
+                                        (
+                                          _,
+                                          i
+                                        ) => i !== index
+                                      )
+                                    );
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            )
                           )}
 
                         </div>
@@ -1311,8 +1324,12 @@ export default function DashboardPage() {
                           size={19}
                         />
 
-                        {outputImage
-                          ? outputImage.name
+                        {outputImages.length > 0
+                          ? `${outputImages.length} image${
+                              outputImages.length > 1
+                                ? "s"
+                                : ""
+                            } attached`
                           : "Attach PNG, JPG, JPEG or WEBP"}
                       </button>
                     </label>
@@ -1358,8 +1375,9 @@ export default function DashboardPage() {
                 <input
                   ref={imageInput}
                   type="file"
+                  multiple
                   accept="image/png,image/jpeg,image/webp"
-                  onChange={chooseImage}
+                  onChange={chooseImages}
                   style={{
                     display: "none",
                   }}
@@ -1463,22 +1481,35 @@ export default function DashboardPage() {
                       )
                     )}
 
-                    {outputImage &&
-                      imageUrl && (
-                        <div className="preview-section">
+                    {outputImages.length > 0 && (
+                      <div className="preview-section">
 
-                          <h3>
-                            Output Screenshot
-                          </h3>
+                        <h3>
+                          Output Screenshots
+                        </h3>
 
-                          <img
-                            className="output-preview"
-                            src={imageUrl}
-                            alt="Uploaded output screenshot"
-                          />
-
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fill, minmax(200px, 1fr))",
+                            gap: "1rem",
+                          }}
+                        >
+                          {outputImages.map(
+                            (_, index) => (
+                              <img
+                                key={index}
+                                className="output-preview"
+                                src={imageUrls[index]}
+                                alt={`Output screenshot ${index + 1}`}
+                              />
+                            )
+                          )}
                         </div>
-                      )}
+
+                      </div>
+                    )}
 
                   </div>
                 ) : (

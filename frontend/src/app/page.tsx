@@ -162,7 +162,7 @@ export default function LandingPage() {
 
         /* Default Premium Dark Mode theme */
         .landing-container.dark {
-          background-color: #0b0e14;
+          background-color: #0a0a0e;
           color: #f1f3f9;
         }
 
