@@ -8,6 +8,7 @@ from backend.api.routes.favorites import router as favorites_router
 from backend.api.routes.projects import router as projects_router
 from backend.api.routes.templates import router as templates_router
 
+
 app = FastAPI(
     title="DocuAI API",
     description="AI-powered intelligent document generation platform",
@@ -21,11 +22,17 @@ def apply_migrations() -> None:
     import os
 
     logger = logging.getLogger(__name__)
+
     migration_path = os.path.join(
-        os.path.dirname(__file__), "..", "database", "migrations",
+        os.path.dirname(__file__),
+        "..",
+        "database",
+        "migrations",
         "20240101000000_add_user_id_to_documents.sql",
     )
+
     migration_sql = None
+
     try:
         with open(migration_path, "r", encoding="utf-8") as migration_file:
             migration_sql = migration_file.read()
@@ -34,6 +41,7 @@ def apply_migrations() -> None:
         return
 
     access_token = os.getenv("SUPABASE_ACCESS_TOKEN")
+
     if not access_token:
         logger.warning(
             "SUPABASE_ACCESS_TOKEN is not set. "
@@ -54,6 +62,7 @@ def apply_migrations() -> None:
             json={"query": migration_sql},
             timeout=30,
         )
+
         if response.ok:
             logger.info("Database migration applied successfully.")
         else:
@@ -62,6 +71,7 @@ def apply_migrations() -> None:
                 response.status_code,
                 response.text,
             )
+
     except Exception as error:
         logger.error("Migration error: %s", error)
 
@@ -75,6 +85,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://docuai-gamma.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
