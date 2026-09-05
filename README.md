@@ -22,27 +22,27 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="screen/screenshot-1.png.png" width="95%">
+  <img src="screenshots/screenshot-1.png" width="95%">
 </p>
 
 <p align="center">
-  <img src="screen/screenshot-2.png.png" width="95%">
+  <img src="screenshots/screenshot-2.png" width="95%">
 </p>
 
 <p align="center">
-  <img src="screen/screenshot-3.png.png" width="95%">
+  <img src="screenshots/screenshot-3.png" width="95%">
 </p>
 
 <p align="center">
-  <img src="screen/screenshot-4.png.png" width="95%">
+  <img src="screenshots/screenshot-4.png" width="95%">
 </p>
 
 <p align="center">
-  <img src="screen/screenshot-5.png.png" width="95%">
+  <img src="screenshots/screenshot-5.png" width="95%">
 </p>
 
 <p align="center">
-  <img src="screen/screenshot-6.png.png" width="95%">
+  <img src="screenshots/screenshot-6.png" width="95%">
 </p>
 
 ---
